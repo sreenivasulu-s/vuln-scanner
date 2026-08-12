@@ -1,4 +1,4 @@
-from scanner.base import ScannerBase
+from backend.scanner.base import ScannerBase
 
 
 class LabScanner(ScannerBase):
