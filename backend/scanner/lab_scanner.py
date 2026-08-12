@@ -1,19 +1,39 @@
+import httpx
+
 from backend.scanner.base import ScannerBase
 
 
 class LabScanner(ScannerBase):
     """
-    Authorized lab కోసం scanner adapter.
-    ప్రస్తుతం demo finding మాత్రమే return చేస్తుంది.
+    Authorized lab scanner adapter.
+    Performs a harmless HTTP GET request.
     """
 
     async def scan(self, target: str) -> list[dict]:
-        return [
-            {
-                "title": "Lab scanner demo finding",
-                "severity": "info",
-                "description": "Demo finding from the lab scanner adapter.",
-                "evidence": "No real security tool executed.",
-                "tool": "lab-demo",
-            }
-        ]
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=5.0,
+            ) as client:
+                response = await client.get(target)
+
+            return [
+                {
+                    "title": "HTTP service reachable",
+                    "severity": "info",
+                    "description": "The authorized lab target responded to an HTTP GET request.",
+                    "evidence": f"HTTP {response.status_code} from {response.url}",
+                    "tool": "httpx",
+                }
+            ]
+
+        except httpx.HTTPError as exc:
+            return [
+                {
+                    "title": "HTTP request failed",
+                    "severity": "info",
+                    "description": "The authorized lab target could not be reached with the configured HTTP client.",
+                    "evidence": str(exc),
+                    "tool": "httpx",
+                }
+            ]
