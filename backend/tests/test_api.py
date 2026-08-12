@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 
+
 client = TestClient(app)
 
 
@@ -76,3 +77,21 @@ def test_scan_produces_httpx_finding():
     assert finding["title"] == "HTTP service reachable"
     assert finding["severity"] == "info"
     assert finding["tool"] == "httpx"
+
+
+def test_scan_rejects_markdown_url():
+    response = client.post(
+        "/scan",
+        json={"url": "[http://127.0.0.1:8000](http://127.0.0.1:8000)"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_scan_rejects_invalid_scheme():
+    response = client.post(
+        "/scan",
+        json={"url": "ftp://127.0.0.1:8000"},
+    )
+
+    assert response.status_code == 422
