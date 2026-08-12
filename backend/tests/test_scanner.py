@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 
 from backend.scanner.lab_scanner import LabScanner
@@ -19,13 +21,44 @@ def test_lab_scanner_returns_http_finding(monkeypatch):
             assert target == "http://127.0.0.1:8000"
             return FakeResponse()
 
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: FakeClient())
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: FakeClient(),
+    )
 
-    findings = __import__("asyncio").run(
+    findings = asyncio.run(
         LabScanner().scan("http://127.0.0.1:8000")
     )
 
     assert len(findings) == 1
     assert findings[0]["title"] == "HTTP service reachable"
+    assert findings[0]["severity"] == "info"
+    assert findings[0]["tool"] == "httpx"
+
+
+def test_lab_scanner_handles_http_error(monkeypatch):
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            pass
+
+        async def get(self, target):
+            raise httpx.ConnectError("connection failed")
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: FakeClient(),
+    )
+
+    findings = asyncio.run(
+        LabScanner().scan("http://127.0.0.1:9999")
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["title"] == "HTTP request failed"
     assert findings[0]["severity"] == "info"
     assert findings[0]["tool"] == "httpx"
