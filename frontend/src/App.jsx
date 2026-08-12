@@ -1,0 +1,170 @@
+import { useState } from 'react'
+import './App.css'
+
+const API_BASE = 'http://127.0.0.1:8000'
+
+function App() {
+  const [url, setUrl] = useState('')
+  const [scan, setScan] = useState(null)
+  const [findings, setFindings] = useState([])
+  const [severity, setSeverity] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function startScan(event) {
+    event.preventDefault()
+    setLoading(true)
+    setError('')
+    setScan(null)
+    setFindings([])
+
+    try {
+      const response = await fetch(`${API_BASE}/scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: url.trim() }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail?.[0]?.msg || 'Scan request failed')
+      }
+
+      const data = await response.json()
+      setScan(data)
+
+      const scanResponse = await fetch(`${API_BASE}/scan/${data.scan_id}`)
+      const scanData = await scanResponse.json()
+
+      setScan(scanData)
+      setFindings(scanData.findings || [])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function filterFindings(value) {
+    setSeverity(value)
+
+    if (!scan) return
+
+    const endpoint = value
+      ? `${API_BASE}/scan/${scan.scan_id}/findings?severity=${encodeURIComponent(value)}`
+      : `${API_BASE}/scan/${scan.scan_id}/findings`
+
+    const response = await fetch(endpoint)
+    const data = await response.json()
+
+    setFindings(data.findings || [])
+  }
+
+  return (
+    <main className="app">
+      <header className="header">
+        <div>
+          <p className="eyebrow">AUTHORIZED LAB</p>
+          <h1>Web Security Scanner</h1>
+          <p className="subtitle">
+            Submit a target and review scanner findings.
+          </p>
+        </div>
+        <span className="status-badge">API Connected</span>
+      </header>
+
+      <section className="card">
+        <h2>Start a scan</h2>
+
+        <form onSubmit={startScan} className="scan-form">
+          <input
+            type="url"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="http://127.0.0.1:8000"
+            required
+          />
+          <button type="submit" disabled={loading}>
+            {loading ? 'Scanning...' : 'Start Scan'}
+          </button>
+        </form>
+
+        {error && <p className="error">{error}</p>}
+      </section>
+
+      {scan && (
+        <section className="card">
+          <div className="section-header">
+            <div>
+              <h2>Scan Status</h2>
+              <p className="target">{scan.target}</p>
+            </div>
+            <span className={`scan-status ${scan.status}`}>
+              {scan.status}
+            </span>
+          </div>
+
+          <div className="scan-meta">
+            <div>
+              <span>Scan ID</span>
+              <strong>{scan.scan_id}</strong>
+            </div>
+            <div>
+              <span>Findings</span>
+              <strong>{scan.findings?.length ?? 0}</strong>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {scan && (
+        <section className="card">
+          <div className="section-header">
+            <h2>Findings</h2>
+
+            <select
+              value={severity}
+              onChange={(event) => filterFindings(event.target.value)}
+            >
+              <option value="">All severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+              <option value="info">Info</option>
+            </select>
+          </div>
+
+          {findings.length === 0 ? (
+            <p className="empty">No findings for this filter.</p>
+          ) : (
+            <div className="findings">
+              {findings.map((finding, index) => (
+                <article className="finding" key={`${finding.title}-${index}`}>
+                  <div className="finding-header">
+                    <h3>{finding.title}</h3>
+                    <span className={`severity ${finding.severity}`}>
+                      {finding.severity}
+                    </span>
+                  </div>
+
+                  <p>{finding.description}</p>
+
+                  <div className="evidence">
+                    <strong>Evidence:</strong> {finding.evidence}
+                  </div>
+
+                  <small>Tool: {finding.tool}</small>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+    </main>
+  )
+}
+
+export default App
