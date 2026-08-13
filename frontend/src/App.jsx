@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 
 const API_BASE = 'http://127.0.0.1:8000'
+const STORAGE_KEY = 'vuln-scanner-scan-id'
 
 function App() {
   const [url, setUrl] = useState('')
@@ -11,12 +12,37 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  async function loadScan(scanId) {
+    const response = await fetch(`${API_BASE}/scan/${scanId}`)
+
+    if (!response.ok) {
+      localStorage.removeItem(STORAGE_KEY)
+      throw new Error('Failed to load saved scan')
+    }
+
+    const data = await response.json()
+
+    setScan(data)
+    setFindings(data.findings || [])
+  }
+
+  useEffect(() => {
+    const savedScanId = localStorage.getItem(STORAGE_KEY)
+
+    if (!savedScanId) return
+
+    loadScan(savedScanId).catch((err) => {
+      setError(err.message || 'Failed to restore scan')
+    })
+  }, [])
+
   async function startScan(event) {
     event.preventDefault()
     setLoading(true)
     setError('')
     setScan(null)
     setFindings([])
+    setSeverity('')
 
     try {
       const response = await fetch(`${API_BASE}/scan`, {
@@ -35,6 +61,9 @@ function App() {
       }
 
       const data = await response.json()
+
+      localStorage.setItem(STORAGE_KEY, data.scan_id)
+
       setScan(data)
 
       const scanResponse = await fetch(
@@ -152,6 +181,7 @@ function App() {
               <option value="medium">Medium</option>
               <option value="high">High</option>
               <option value="critical">Critical</option>
+              <option value="info">Info</option>
             </select>
           </div>
 
@@ -168,6 +198,7 @@ function App() {
                 >
                   <div className="finding-header">
                     <h3>{finding.title}</h3>
+
                     <span
                       className={`severity ${finding.severity}`}
                     >
@@ -183,7 +214,8 @@ function App() {
                   </p>
 
                   <p>
-                    <strong>Tool:</strong> {finding.tool}
+                    <strong>Tool:</strong>{' '}
+                    {finding.tool}
                   </p>
                 </article>
               ))}
