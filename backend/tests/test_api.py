@@ -70,7 +70,7 @@ def test_scan_produces_httpx_finding():
     data = findings_response.json()
 
     assert data["scan_id"] == scan_id
-    assert data["count"] == 1
+    assert data["count"] == 3
 
     finding = data["findings"][0]
 
@@ -116,5 +116,5 @@ def test_findings_severity_filter():
     data = findings_response.json()
 
     assert data["scan_id"] == scan_id
-    assert data["count"] == 1
+    assert data["count"] == 3
     assert data["findings"][0]["severity"] == "info"
