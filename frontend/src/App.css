@@ -375,3 +375,39 @@
   }
 }
 
+
+.scan-form select {
+  padding: 13px 14px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  outline: none;
+  color: #e2e8f0;
+  background: #020617;
+}
+
+.scan-form select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.history-target {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  text-align: left;
+  word-break: break-all;
+}
+
+.history-type {
+  color: #64748b;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 700px) {
+  .scan-form select {
+    width: 100%;
+  }
+}

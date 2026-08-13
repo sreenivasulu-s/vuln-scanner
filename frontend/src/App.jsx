@@ -6,6 +6,7 @@ const STORAGE_KEY = 'vuln-scanner-scan-id'
 
 function App() {
   const [url, setUrl] = useState('')
+  const [targetType, setTargetType] = useState('web')
   const [scan, setScan] = useState(null)
   const [findings, setFindings] = useState([])
   const [severity, setSeverity] = useState('')
@@ -92,7 +93,12 @@ function App() {
         )
 
         if (!response.ok) {
-          localStorage.removeItem(STORAGE_KEY)
+          if (response.status === 404) {
+            localStorage.removeItem(STORAGE_KEY)
+            await loadHistory()
+            return
+          }
+
           throw new Error('Failed to restore scan')
         }
 
@@ -138,6 +144,7 @@ function App() {
         },
         body: JSON.stringify({
           url: url.trim(),
+          target_type: targetType,
         }),
       })
 
@@ -199,6 +206,30 @@ function App() {
     }
   }
 
+  const severityCounts = findings.reduce(
+    (counts, finding) => {
+      const level = finding.severity || 'info'
+      counts[level] = (counts[level] || 0) + 1
+      return counts
+    },
+    {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      info: 0,
+    }
+  )
+
+  const totalFindings = Object.values(severityCounts).reduce(
+    (total, count) => total + count,
+    0
+  )
+
+  const riskCount =
+    severityCounts.critical +
+    severityCounts.high
+
   return (
     <main className="app">
       <header className="header">
@@ -217,10 +248,75 @@ function App() {
         </span>
       </header>
 
+      <section className="dashboard-grid">
+        <article className="metric-card">
+          <span className="metric-label">Total Scans</span>
+          <strong>{history.length}</strong>
+          <small>Saved in database</small>
+        </article>
+
+        <article className="metric-card">
+          <span className="metric-label">Findings</span>
+          <strong>{totalFindings}</strong>
+          <small>Current scan</small>
+        </article>
+
+        <article className="metric-card risk">
+          <span className="metric-label">High Risk</span>
+          <strong>{riskCount}</strong>
+          <small>
+            {severityCounts.critical} critical · {severityCounts.high} high
+          </small>
+        </article>
+
+        <article className="metric-card">
+          <span className="metric-label">Scan Status</span>
+          <strong>{scan?.status || 'Ready'}</strong>
+          <small>Scanner availability</small>
+        </article>
+      </section>
+
+      <section className="severity-overview">
+        <div className="severity-overview-header">
+          <div>
+            <h2>Security Overview</h2>
+            <p>Finding distribution for the selected scan.</p>
+          </div>
+        </div>
+
+        <div className="severity-grid">
+          {['critical', 'high', 'medium', 'low', 'info'].map((level) => (
+            <button
+              type="button"
+              className={`severity-summary ${level}`}
+              key={level}
+              onClick={() => filterFindings(level)}
+              disabled={!scan}
+            >
+              <span>{level}</span>
+              <strong>{severityCounts[level]}</strong>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="card">
         <h2>Start a scan</h2>
 
         <form onSubmit={startScan} className="scan-form">
+          <select
+            value={targetType}
+            onChange={(event) => setTargetType(event.target.value)}
+            aria-label="Target type"
+          >
+            <option value="web">Web</option>
+            <option value="api">API</option>
+            <option value="network">Network</option>
+            <option value="mobile">Mobile</option>
+            <option value="cloud">Cloud</option>
+            <option value="wireless">Wireless</option>
+          </select>
+
           <input
             type="url"
             value={url}
@@ -280,6 +376,9 @@ function App() {
               >
                 <span className="history-target">
                   {item.target}
+                  <small className="history-type">
+                    {item.target_type || 'web'}
+                  </small>
                 </span>
 
                 <span className="history-details">

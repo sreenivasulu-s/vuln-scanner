@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
 from backend.scanner.lab_scanner import LabScanner
+from backend.db import init_db, load_scans, save_scan
 
 
 app = FastAPI(
@@ -27,6 +28,29 @@ app.add_middleware(
 
 class ScanRequest(BaseModel):
     url: str
+    target_type: str = "web"
+
+    @field_validator("target_type")
+    @classmethod
+    def validate_target_type(cls, value: str) -> str:
+        value = value.strip().lower()
+
+        allowed = {
+            "web",
+            "api",
+            "network",
+            "mobile",
+            "cloud",
+            "wireless",
+        }
+
+        if value not in allowed:
+            raise ValueError(
+                "target_type must be one of: "
+                "web, api, network, mobile, cloud, wireless"
+            )
+
+        return value
 
     @field_validator("url")
     @classmethod
@@ -57,7 +81,8 @@ class Finding(BaseModel):
     tool: str
 
 
-scans: dict[str, dict] = {}
+init_db()
+scans: dict[str, dict] = load_scans()
 
 
 def add_finding(
@@ -67,6 +92,7 @@ def add_finding(
     scans[scan_id]["findings"].append(
         Finding(**finding).model_dump()
     )
+    save_scan(scans[scan_id])
 
 
 async def run_scan(scan_id: str):
@@ -84,6 +110,7 @@ async def run_scan(scan_id: str):
     except Exception as exc:
         scan["status"] = "failed"
         scan["error"] = str(exc)
+    save_scan(scan)
 
 
 @app.get("/")
@@ -104,10 +131,12 @@ def start_scan(
     scans[scan_id] = {
         "scan_id": scan_id,
         "target": request.url,
+        "target_type": request.target_type,
         "status": "queued",
         "findings": [],
     }
 
+    save_scan(scans[scan_id])
     background_tasks.add_task(run_scan, scan_id)
 
     return scans[scan_id]
