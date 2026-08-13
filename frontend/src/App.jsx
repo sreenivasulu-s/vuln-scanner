@@ -29,19 +29,28 @@ function App() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data.detail?.[0]?.msg || 'Scan request failed')
+        throw new Error(
+          data.detail?.[0]?.msg || 'Scan request failed'
+        )
       }
 
       const data = await response.json()
       setScan(data)
 
-      const scanResponse = await fetch(`${API_BASE}/scan/${data.scan_id}`)
+      const scanResponse = await fetch(
+        `${API_BASE}/scan/${data.scan_id}`
+      )
+
+      if (!scanResponse.ok) {
+        throw new Error('Failed to fetch scan status')
+      }
+
       const scanData = await scanResponse.json()
 
       setScan(scanData)
       setFindings(scanData.findings || [])
     } catch (err) {
-      setError(err.message)
+      setError(err.message || 'Network request failed')
     } finally {
       setLoading(false)
     }
@@ -56,10 +65,18 @@ function App() {
       ? `${API_BASE}/scan/${scan.scan_id}/findings?severity=${encodeURIComponent(value)}`
       : `${API_BASE}/scan/${scan.scan_id}/findings`
 
-    const response = await fetch(endpoint)
-    const data = await response.json()
+    try {
+      const response = await fetch(endpoint)
 
-    setFindings(data.findings || [])
+      if (!response.ok) {
+        throw new Error('Failed to fetch findings')
+      }
+
+      const data = await response.json()
+      setFindings(data.findings || [])
+    } catch (err) {
+      setError(err.message || 'Failed to load findings')
+    }
   }
 
   return (
@@ -72,6 +89,7 @@ function App() {
             Submit a target and review scanner findings.
           </p>
         </div>
+
         <span className="status-badge">API Connected</span>
       </header>
 
@@ -86,6 +104,7 @@ function App() {
             placeholder="http://127.0.0.1:8000"
             required
           />
+
           <button type="submit" disabled={loading}>
             {loading ? 'Scanning...' : 'Start Scan'}
           </button>
@@ -101,6 +120,7 @@ function App() {
               <h2>Scan Status</h2>
               <p className="target">{scan.target}</p>
             </div>
+
             <span className={`scan-status ${scan.status}`}>
               {scan.status}
             </span>
@@ -108,55 +128,63 @@ function App() {
 
           <div className="scan-meta">
             <div>
-              <span>Scan ID</span>
-              <strong>{scan.scan_id}</strong>
+              <strong>Scan ID</strong>
+              <span>{scan.scan_id}</span>
             </div>
+
             <div>
-              <span>Findings</span>
-              <strong>{scan.findings?.length ?? 0}</strong>
+              <strong>Status</strong>
+              <span>{scan.status}</span>
             </div>
           </div>
-        </section>
-      )}
 
-      {scan && (
-        <section className="card">
-          <div className="section-header">
+          <div className="findings-header">
             <h2>Findings</h2>
 
             <select
               value={severity}
-              onChange={(event) => filterFindings(event.target.value)}
+              onChange={(event) =>
+                filterFindings(event.target.value)
+              }
             >
               <option value="">All severities</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
               <option value="low">Low</option>
-              <option value="info">Info</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
             </select>
           </div>
 
           {findings.length === 0 ? (
-            <p className="empty">No findings for this filter.</p>
+            <p className="empty">
+              No findings returned yet.
+            </p>
           ) : (
             <div className="findings">
               {findings.map((finding, index) => (
-                <article className="finding" key={`${finding.title}-${index}`}>
+                <article
+                  className="finding"
+                  key={`${finding.title}-${index}`}
+                >
                   <div className="finding-header">
                     <h3>{finding.title}</h3>
-                    <span className={`severity ${finding.severity}`}>
+                    <span
+                      className={`severity ${finding.severity}`}
+                    >
                       {finding.severity}
                     </span>
                   </div>
 
                   <p>{finding.description}</p>
 
-                  <div className="evidence">
-                    <strong>Evidence:</strong> {finding.evidence}
-                  </div>
+                  <p>
+                    <strong>Evidence:</strong>{' '}
+                    {finding.evidence}
+                  </p>
 
-                  <small>Tool: {finding.tool}</small>
+                  <p>
+                    <strong>Tool:</strong> {finding.tool}
+                  </p>
                 </article>
               ))}
             </div>
