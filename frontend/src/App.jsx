@@ -24,6 +24,8 @@ function App() {
 
     setScan(data)
     setFindings(data.findings || [])
+
+    return data
   }
 
   useEffect(() => {
@@ -31,13 +33,48 @@ function App() {
 
     if (!savedScanId) return
 
-    loadScan(savedScanId).catch((err) => {
-      setError(err.message || 'Failed to restore scan')
-    })
+    let cancelled = false
+    let timerId
+
+    async function pollScan() {
+      try {
+        const response = await fetch(
+          `${API_BASE}/scan/${savedScanId}`
+        )
+
+        if (!response.ok) {
+          localStorage.removeItem(STORAGE_KEY)
+          throw new Error('Failed to restore scan')
+        }
+
+        const data = await response.json()
+
+        if (cancelled) return
+
+        setScan(data)
+        setFindings(data.findings || [])
+
+        if (data.status === 'queued' || data.status === 'running') {
+          timerId = setTimeout(pollScan, 1000)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Failed to restore scan')
+        }
+      }
+    }
+
+    pollScan()
+
+    return () => {
+      cancelled = true
+      clearTimeout(timerId)
+    }
   }, [])
 
   async function startScan(event) {
     event.preventDefault()
+
     setLoading(true)
     setError('')
     setScan(null)
@@ -50,11 +87,14 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify({
+          url: url.trim(),
+        }),
       })
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
+
         throw new Error(
           data.detail?.[0]?.msg || 'Scan request failed'
         )
@@ -65,19 +105,18 @@ function App() {
       localStorage.setItem(STORAGE_KEY, data.scan_id)
 
       setScan(data)
+      setFindings(data.findings || [])
 
-      const scanResponse = await fetch(
-        `${API_BASE}/scan/${data.scan_id}`
-      )
+      let currentScan = data
 
-      if (!scanResponse.ok) {
-        throw new Error('Failed to fetch scan status')
+      while (
+        currentScan.status === 'queued' ||
+        currentScan.status === 'running'
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+
+        currentScan = await loadScan(data.scan_id)
       }
-
-      const scanData = await scanResponse.json()
-
-      setScan(scanData)
-      setFindings(scanData.findings || [])
     } catch (err) {
       setError(err.message || 'Network request failed')
     } finally {
@@ -102,6 +141,7 @@ function App() {
       }
 
       const data = await response.json()
+
       setFindings(data.findings || [])
     } catch (err) {
       setError(err.message || 'Failed to load findings')
@@ -113,13 +153,17 @@ function App() {
       <header className="header">
         <div>
           <p className="eyebrow">AUTHORIZED LAB</p>
+
           <h1>Web Security Scanner</h1>
+
           <p className="subtitle">
             Submit a target and review scanner findings.
           </p>
         </div>
 
-        <span className="status-badge">API Connected</span>
+        <span className="status-badge">
+          API Connected
+        </span>
       </header>
 
       <section className="card">
@@ -139,7 +183,11 @@ function App() {
           </button>
         </form>
 
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error">
+            {error}
+          </p>
+        )}
       </section>
 
       {scan && (
@@ -147,7 +195,10 @@ function App() {
           <div className="section-header">
             <div>
               <h2>Scan Status</h2>
-              <p className="target">{scan.target}</p>
+
+              <p className="target">
+                {scan.target}
+              </p>
             </div>
 
             <span className={`scan-status ${scan.status}`}>
@@ -177,11 +228,11 @@ function App() {
               }
             >
               <option value="">All severities</option>
+              <option value="info">Info</option>
               <option value="low">Low</option>
               <option value="medium">Medium</option>
               <option value="high">High</option>
               <option value="critical">Critical</option>
-              <option value="info">Info</option>
             </select>
           </div>
 
@@ -206,7 +257,9 @@ function App() {
                     </span>
                   </div>
 
-                  <p>{finding.description}</p>
+                  <p>
+                    {finding.description}
+                  </p>
 
                   <p>
                     <strong>Evidence:</strong>{' '}
