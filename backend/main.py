@@ -113,6 +113,19 @@ def start_scan(
     return scans[scan_id]
 
 
+@app.get("/scans")
+def get_scans():
+    return [
+        {
+            "scan_id": scan["scan_id"],
+            "target": scan["target"],
+            "status": scan["status"],
+            "findings_count": len(scan["findings"]),
+        }
+        for scan in reversed(list(scans.values()))
+    ]
+
+
 @app.get("/scan/{scan_id}")
 def get_scan(scan_id: str):
     scan = scans.get(scan_id)

@@ -118,3 +118,51 @@ def test_findings_severity_filter():
     assert data["scan_id"] == scan_id
     assert data["count"] == 3
     assert data["findings"][0]["severity"] == "info"
+
+def test_scan_history_returns_scans_newest_first():
+    first_response = client.post(
+        "/scan",
+        json={"url": "http://127.0.0.1:8000"},
+    )
+    second_response = client.post(
+        "/scan",
+        json={"url": "http://127.0.0.1:8001"},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    first_scan_id = first_response.json()["scan_id"]
+    second_scan_id = second_response.json()["scan_id"]
+
+    response = client.get("/scans")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    scan_ids = [scan["scan_id"] for scan in data]
+
+    assert second_scan_id in scan_ids
+    assert first_scan_id in scan_ids
+    assert scan_ids.index(second_scan_id) < scan_ids.index(first_scan_id)
+
+    history_entry = next(
+        scan for scan in data if scan["scan_id"] == second_scan_id
+    )
+
+    assert history_entry["target"] == "http://127.0.0.1:8001"
+    assert history_entry["status"] in {"queued", "completed"}
+    assert history_entry["findings_count"] >= 0
+
+
+def test_scan_history_is_empty_when_no_scans_exist():
+    from backend.main import scans
+
+    scans.clear()
+
+    response = client.get("/scans")
+
+    assert response.status_code == 200
+    assert response.json() == []
+

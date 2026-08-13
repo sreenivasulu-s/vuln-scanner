@@ -11,6 +11,53 @@ function App() {
   const [severity, setSeverity] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [history, setHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
+  async function loadHistory() {
+    setHistoryLoading(true)
+
+    try {
+      const response = await fetch(`${API_BASE}/scans`)
+
+      if (!response.ok) {
+        throw new Error('Failed to load scan history')
+      }
+
+      const data = await response.json()
+      setHistory(data)
+    } catch (err) {
+      setError(err.message || 'Failed to load scan history')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  async function selectHistoricalScan(scanId) {
+    setError('')
+    setSeverity('')
+
+    try {
+      const data = await loadScan(scanId)
+      localStorage.setItem(STORAGE_KEY, scanId)
+
+      if (data.status === 'queued' || data.status === 'running') {
+        let currentScan = data
+
+        while (
+          currentScan.status === 'queued' ||
+          currentScan.status === 'running'
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          currentScan = await loadScan(scanId)
+        }
+      }
+
+      await loadHistory()
+    } catch (err) {
+      setError(err.message || 'Failed to load historical scan')
+    }
+  }
 
   async function loadScan(scanId) {
     const response = await fetch(`${API_BASE}/scan/${scanId}`)
@@ -29,6 +76,8 @@ function App() {
   }
 
   useEffect(() => {
+    loadHistory()
+
     const savedScanId = localStorage.getItem(STORAGE_KEY)
 
     if (!savedScanId) return
@@ -106,6 +155,8 @@ function App() {
 
       setScan(data)
       setFindings(data.findings || [])
+
+      await loadHistory()
 
       let currentScan = data
 
@@ -187,6 +238,63 @@ function App() {
           <p className="error">
             {error}
           </p>
+        )}
+      </section>
+
+
+      <section className="card">
+        <div className="section-header">
+          <div>
+            <h2>Scan History</h2>
+            <p className="target">
+              Previous scans from this scanner session.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="history-refresh"
+            onClick={loadHistory}
+            disabled={historyLoading}
+          >
+            {historyLoading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        {history.length === 0 ? (
+          <p className="empty">
+            {historyLoading
+              ? 'Loading scan history...'
+              : 'No previous scans yet.'}
+          </p>
+        ) : (
+          <div className="history-list">
+            {history.map((item) => (
+              <button
+                type="button"
+                className={`history-item ${
+                  scan?.scan_id === item.scan_id ? 'selected' : ''
+                }`}
+                key={item.scan_id}
+                onClick={() => selectHistoricalScan(item.scan_id)}
+              >
+                <span className="history-target">
+                  {item.target}
+                </span>
+
+                <span className="history-details">
+                  <span className={`scan-status ${item.status}`}>
+                    {item.status}
+                  </span>
+
+                  <span className="history-count">
+                    {item.findings_count}{' '}
+                    {item.findings_count === 1 ? 'finding' : 'findings'}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
         )}
       </section>
 
