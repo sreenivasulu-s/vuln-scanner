@@ -95,3 +95,26 @@ def test_scan_rejects_invalid_scheme():
     )
 
     assert response.status_code == 422
+
+
+def test_findings_severity_filter():
+    response = client.post(
+        "/scan",
+        json={"url": "http://127.0.0.1:8000"},
+    )
+
+    assert response.status_code == 200
+
+    scan_id = response.json()["scan_id"]
+
+    findings_response = client.get(
+        f"/scan/{scan_id}/findings?severity=info"
+    )
+
+    assert findings_response.status_code == 200
+
+    data = findings_response.json()
+
+    assert data["scan_id"] == scan_id
+    assert data["count"] == 1
+    assert data["findings"][0]["severity"] == "info"
