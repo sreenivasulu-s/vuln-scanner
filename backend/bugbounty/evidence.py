@@ -6,6 +6,9 @@ import re
 def clean_evidence(value: str, limit: int = 12000) -> str:
     text = str(value or "").replace("\x00", "").strip()
 
+    # Remove terminal ANSI escape sequences emitted by security tools.
+    text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+
     # Collapse excessive blank lines without destroying scanner output.
     text = re.sub(r"\n[ \t]*\n[ \t]*\n+", "\n\n", text)
 

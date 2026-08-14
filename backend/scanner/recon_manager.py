@@ -102,7 +102,7 @@ class ReconManager:
         tasks.extend(
             [
                 self._run_tool(
-                    "httpx",
+                    "httpx-toolkit",
                     [
                         "-silent",
                         "-status-code",
@@ -121,7 +121,7 @@ class ReconManager:
                         host,
                         "-silent",
                         "-top-ports",
-                        "20",
+                        "100",
                     ],
                     "Port discovery completed",
                     30,
