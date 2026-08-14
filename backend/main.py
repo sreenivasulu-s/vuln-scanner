@@ -1,7 +1,9 @@
+from pathlib import Path
 from uuid import uuid4
 import asyncio
 import re
 
+from fastapi.staticfiles import StaticFiles
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +23,17 @@ app = FastAPI(
     title="Nayak The Hacker",
     version="0.7.0",
 )
+
+# Serve the compiled frontend assets.
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if (frontend_dist / "assets").exists():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=frontend_dist / "assets"),
+        name="frontend-assets",
+    )
+
 
 
 app.add_middleware(
@@ -181,9 +194,16 @@ async def run_scan(scan_id: str):
 
 @app.get("/")
 def home():
+    from fastapi.responses import FileResponse
+
+    frontend = Path(__file__).resolve().parent.parent / "frontend" / "dist" / "index.html"
+
+    if frontend.exists():
+        return FileResponse(frontend)
+
     return {
         "status": "ok",
-        "message": "Nayak The Hacker Security Scanner API is running",
+        "message": "Vuln Scanner frontend build not found",
     }
 
 
@@ -252,6 +272,14 @@ def get_scope():
         }
         for rule in scope_manager.rules
     ]
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "message": "Nayak The Hacker Security Scanner API is running",
+    }
 
 
 @app.get("/scan/{scan_id}/report/markdown")
