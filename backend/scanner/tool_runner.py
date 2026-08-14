@@ -57,6 +57,7 @@ class ToolRunner:
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
 
             try:
@@ -65,7 +66,10 @@ class ToolRunner:
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
-                process.kill()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 await process.communicate()
 
                 return ToolResult(
