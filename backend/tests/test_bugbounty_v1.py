@@ -75,3 +75,23 @@ def test_markdown_report_contains_sections():
     assert "## Summary" in markdown
     assert "## Findings" in markdown
     assert "Test finding" in markdown
+
+def test_classifier_covers_common_finding_types():
+    from backend.bugbounty.classifier import classify_finding
+
+    cases = [('sql injection', 'high'), ('cross-site scripting xss', 'medium'), ('server-side request forgery ssrf', 'medium'), ('open redirect', 'medium'), ('missing security header', 'info'), ('unknown observation', 'info')]
+
+    for title, expected in cases:
+        result = classify_finding({"title": title})
+        assert result["severity"] == expected
+
+
+def test_classifier_handles_evidence_and_empty_values():
+    from backend.bugbounty.classifier import classify_finding
+
+    result = classify_finding({"title": "sql injection", "evidence": "parameter appears injectable"})
+    assert result["severity"] == "high"
+    assert result["confidence"] in {"medium", "high"}
+
+    result = classify_finding({"title": ""})
+    assert "severity" in result
