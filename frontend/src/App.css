@@ -411,3 +411,71 @@
     width: 100%;
   }
 }
+
+.finding-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.confidence {
+  padding: 5px 9px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  color: #94a3b8;
+  background: #111827;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.finding-detail {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.finding-detail strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #e2e8f0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.finding-detail p {
+  margin: 0;
+  color: #94a3b8;
+  line-height: 1.55;
+}
+
+.finding-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: #64748b;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  word-break: break-all;
+}
+
+@media (max-width: 700px) {
+  .scan-form {
+    flex-direction: column;
+  }
+
+  .scan-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .finding-header,
+  .finding-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
