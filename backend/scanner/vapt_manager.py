@@ -70,13 +70,13 @@ class VaptManager:
                 "nuclei",
                 ["-u", target, "-silent", "-jsonl"],
                 "Nuclei assessment completed",
-                35,
+                60,
             ),
             self._run(
                 "nikto",
                 ["-h", target],
                 "Nikto assessment completed",
-                35,
+                60,
             ),
             self._run(
                 "ffuf",
