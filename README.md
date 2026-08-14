@@ -1,5 +1,9 @@
 # Nayak The Hacker — Authorized Web Security Scanner
 
+[![Tests](https://github.com/sreenivasulu-s/vuln-scanner/actions/workflows/test.yml/badge.svg)](https://github.com/sreenivasulu-s/vuln-scanner/actions/workflows/test.yml)  
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)  
+[![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org/)  
+
 An authorized web security assessment platform for reconnaissance, vulnerability scanning, finding classification, evidence collection, and security reporting.
 
 > **Important:** Use this project only against systems you own or have explicit permission to assess.
@@ -64,3 +68,16 @@ No license has been published yet. Until a license is added, default copyright t
 **Nayak The Hacker — Authorized Web Security Scanner**
 
 Repository: https://github.com/sreenivasulu-s/vuln-scanner
+
+
+## Demo
+
+Run the API locally:
+
+```bash
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000/docs` for the interactive API documentation.
+
+Use only against systems you own or have explicit authorization to assess.
