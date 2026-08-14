@@ -94,6 +94,8 @@ class Finding(BaseModel):
     impact: str = ""
     remediation: str = ""
     tool: str
+    cwe: str | None = None
+    owasp: str | None = None
     references: list[str] = []
 
 
