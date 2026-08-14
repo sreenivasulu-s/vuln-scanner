@@ -1,7 +1,12 @@
 # Python
 venv/
+.venv/
+.venv-fast/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Frontend
 frontend/node_modules/
@@ -12,14 +17,11 @@ frontend/dist/
 .env.*
 !.env.example
 
-# OS/editor files
+# OS / editor
 .DS_Store
 .vscode/
 .idea/
 
-# Local runtime database
+# Local runtime data
 scanner.db
-venv/
-.env
-__pycache__/
-*.pyc
+*.db
