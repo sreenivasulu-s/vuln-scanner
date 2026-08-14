@@ -10,6 +10,7 @@ from pydantic import BaseModel, field_validator
 from backend.scanner.dispatcher import TargetTypeAdapter
 from backend.bugbounty.scope import ScopeManager
 from backend.bugbounty.models import BugBountyFinding
+from backend.bugbounty.classifier import classify_finding
 from backend.bugbounty.report import build_report, render_markdown
 from backend.db import init_db, load_scans, save_scan
 
