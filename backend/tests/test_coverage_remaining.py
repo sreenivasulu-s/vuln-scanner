@@ -143,4 +143,4 @@ def test_scanner_base_contract():
             return await super().scan(target)
 
     with pytest.raises(NotImplementedError):
-        asyncio.run(Dummy().scan("example.test"))\n
+        asyncio.run(Dummy().scan("example.test"))
