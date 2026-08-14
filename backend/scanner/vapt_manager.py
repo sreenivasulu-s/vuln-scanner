@@ -45,14 +45,24 @@ class VaptManager:
             timeout=timeout,
         )
 
-        if not (result.stdout.strip() or result.stderr.strip()):
+        output = (result.stdout or result.stderr).strip()
+
+        if getattr(result, "timed_out", False):
+            return {
+                "title": f"{tool} timed out",
+                "severity": "info",
+                "confidence": "high",
+                "description": f"{tool} exceeded its authorized execution timeout.",
+                "evidence": output[:12000] or f"timeout after {timeout}s",
+                "impact": "Assessment was incomplete and requires analyst review.",
+                "remediation": "Review target responsiveness and adjust the tool timeout if appropriate.",
+                "tool": tool,
+            }
+
+        if not output:
             return None
 
-        return self.finding(
-            tool,
-            title,
-            result,
-        )
+        return self.finding(tool, title, result)
 
     async def run(self, target: str) -> list[dict]:
         tasks = [
