@@ -523,15 +523,37 @@ function App() {
                     {finding.description}
                   </p>
 
-                  <p>
-                    <strong>Evidence:</strong>{' '}
-                    {finding.evidence}
-                  </p>
+                  <div className="finding-meta">
+                    <span>
+                      <strong>Confidence:</strong>{' '}
+                      {finding.confidence || 'medium'}
+                    </span>
+                    <span>
+                      <strong>Tool:</strong>{' '}
+                      {finding.tool || 'scanner'}
+                    </span>
+                  </div>
 
-                  <p>
-                    <strong>Tool:</strong>{' '}
-                    {finding.tool}
-                  </p>
+                  <div className="finding-section">
+                    <strong>Evidence</strong>
+                    <p>{finding.evidence || 'No evidence provided.'}</p>
+                  </div>
+
+                  <div className="finding-section">
+                    <strong>Impact</strong>
+                    <p>
+                      {finding.impact ||
+                        'Review the evidence and validate the impact.'}
+                    </p>
+                  </div>
+
+                  <div className="finding-section">
+                    <strong>Remediation</strong>
+                    <p>
+                      {finding.remediation ||
+                        'Review the finding and apply the appropriate security control.'}
+                    </p>
+                  </div>
                 </article>
               ))}
             </div>

@@ -479,3 +479,42 @@
     flex-direction: column;
   }
 }
+
+.finding-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 16px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.finding-meta span {
+  padding: 6px 9px;
+  border: 1px solid #1e293b;
+  border-radius: 7px;
+  background: #0f172a;
+}
+
+.finding-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #1e293b;
+}
+
+.finding-section > strong {
+  color: #e2e8f0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.finding-section p {
+  margin: 7px 0 0;
+}
+
+@media (max-width: 700px) {
+  .finding-meta {
+    flex-direction: column;
+  }
+}
