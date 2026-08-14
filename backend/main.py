@@ -11,6 +11,7 @@ from backend.scanner.dispatcher import TargetTypeAdapter
 from backend.bugbounty.scope import ScopeManager
 from backend.bugbounty.models import BugBountyFinding
 from backend.bugbounty.classifier import classify_finding
+from backend.bugbounty.evidence import clean_evidence, evidence_fingerprint
 from backend.bugbounty.report import build_report, render_markdown
 from backend.db import init_db, load_scans, save_scan
 
@@ -137,7 +138,9 @@ async def run_scan(scan_id: str):
                     "description",
                     "Finding reported by the authorized scanner.",
                 ),
-                "evidence": finding.get("evidence", ""),
+                "evidence": clean_evidence(
+                    finding.get("evidence", "")
+                ),
                 "impact": finding.get(
                     "impact",
                     "Review the evidence and validate impact within the authorized program scope.",
@@ -153,11 +156,7 @@ async def run_scan(scan_id: str):
         # Keep persisted scan results normalized and deduplicated.
         seen = set()
         for finding in normalized_findings:
-            key = (
-                finding["target"],
-                finding["title"],
-                finding["evidence"],
-            )
+            key = evidence_fingerprint(finding)
             if key in seen:
                 continue
             seen.add(key)
