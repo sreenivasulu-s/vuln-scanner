@@ -13,6 +13,7 @@ from backend.bugbounty.models import BugBountyFinding
 from backend.bugbounty.classifier import classify_finding
 from backend.bugbounty.evidence import clean_evidence, evidence_fingerprint
 from backend.bugbounty.report import build_report, render_markdown
+from backend.bugbounty.knowledge import enrich_finding
 from backend.db import init_db, load_scans, save_scan
 
 
@@ -152,6 +153,12 @@ async def run_scan(scan_id: str):
                 "tool": finding.get("tool", "scanner"),
                 "references": finding.get("references", []),
             })
+
+        # Enrich normalized findings with CWE/OWASP mappings and references.
+        normalized_findings = [
+            enrich_finding(finding)
+            for finding in normalized_findings
+        ]
 
         # Keep persisted scan results normalized and deduplicated.
         seen = set()
