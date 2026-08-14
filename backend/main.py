@@ -81,10 +81,12 @@ class ScanRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, value: str) -> str:
-        value = value.strip().strip("`").strip()
+        value = value.strip()
 
         if "](" in value and value.endswith(")"):
             value = value.split("](", 1)[1][:-1].strip()
+
+        value = value.strip().strip("`").strip().strip("'\\\"").strip()
 
         if not (
             value.startswith("http://")
@@ -168,6 +170,23 @@ async def run_scan(scan_id: str):
                 "tool": finding.get("tool", "scanner"),
                 "references": finding.get("references", []),
             })
+
+        # Classify normalized findings before enrichment so severity/confidence
+        # are consistently derived from the finding title/evidence.
+        classified_findings = []
+        for finding in normalized_findings:
+            classified = classify_finding(dict(finding))
+
+            # Preserve scanner-provided values when the classifier does not
+            # produce a meaningful replacement.
+            if classified.get("severity"):
+                finding["severity"] = classified["severity"]
+            if classified.get("confidence"):
+                finding["confidence"] = classified["confidence"]
+
+            classified_findings.append(finding)
+
+        normalized_findings = classified_findings
 
         # Enrich normalized findings with CWE/OWASP mappings and references.
         normalized_findings = [

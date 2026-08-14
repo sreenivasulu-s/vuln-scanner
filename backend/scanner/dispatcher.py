@@ -49,14 +49,9 @@ class TargetTypeAdapter:
         return findings
 
     async def _scan_api(self, target: str) -> list[dict]:
-        findings = []
-
-        findings.extend(await ApiScanner().scan(target))
-
-        # Recon is useful for API hosts as well.
-        findings.extend(await ReconManager().run(target))
-
-        return findings
+        # API targets use the dedicated passive API assessment pipeline.
+        # Do not run generic network/recon tooling here.
+        return await ApiScanner().scan(target)
 
     async def _scan_network(self, target: str) -> list[dict]:
         findings = []

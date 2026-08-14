@@ -1,3 +1,4 @@
+import re
 import httpx
 
 from backend.scanner.base import ScannerBase
@@ -137,13 +138,31 @@ class ApiScanner(ScannerBase):
 
     @staticmethod
     def _normalize_target(target: str) -> str:
-        import re
+        """Normalize API scan targets without corrupting ports, paths, or queries."""
+        value = str(target).strip()
 
-        value = target.strip().strip("`").strip()
+        # Remove surrounding shell/CLI quotes before URL scheme normalization.
+        while len(value) >= 2 and value[0] in "'`\"" and value[-1] == value[0]:
+            value = value[1:-1].strip()
 
+        # Markdown link: [label](https://host/path)
         markdown_match = re.fullmatch(r"\[([^\]]+)\]\(([^)]+)\)", value)
         if markdown_match:
             value = markdown_match.group(2).strip()
+
+        # Remove surrounding shell/markdown quotes only.
+        while len(value) >= 2 and value[0] in "'`" and value[-1] == value[0]:
+            value = value[1:-1].strip()
+
+        # Remove a stray trailing quote/backtick without touching URL ports.
+        value = value.rstrip("'`").strip()
+
+        if not value:
+            raise ValueError("Target cannot be empty")
+
+        # Add a scheme when the user supplied host[:port][/path].
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", value):
+            value = "http://" + value
 
         return value
 
