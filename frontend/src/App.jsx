@@ -1,8 +1,40 @@
 import { useEffect, useState } from 'react'
 import './App.css'
-
 const API_BASE = 'http://127.0.0.1:8000'
 const STORAGE_KEY = 'vuln-scanner-scan-id'
+const TARGET_CONFIG = {
+  web: {
+    label: 'Web Application',
+    placeholder: 'Authorized target URL',
+    type: 'url',
+  },
+  api: {
+    label: 'API',
+    placeholder: 'Authorized API URL',
+    type: 'url',
+  },
+  network: {
+    label: 'Network',
+    placeholder: 'Authorized host or IP',
+    type: 'text',
+  },
+  mobile: {
+    label: 'Mobile Application',
+    placeholder: 'Authorized APK/IPA path or reference',
+    type: 'text',
+  },
+  cloud: {
+    label: 'Cloud',
+    placeholder: 'Authorized cloud provider/config reference',
+    type: 'text',
+  },
+  wireless: {
+    label: 'Wireless',
+    placeholder: 'Authorized wireless interface/scope',
+    type: 'text',
+  },
+}
+
 
 function App() {
   const [url, setUrl] = useState('')
@@ -234,9 +266,9 @@ function App() {
     <main className="app">
       <header className="header">
         <div>
-          <p className="eyebrow">AUTHORIZED LAB</p>
+          <p className="eyebrow">Nayak The Hacker</p>
 
-          <h1>Web Security Scanner</h1>
+          <h1>Nayak The Hacker</h1>
 
           <p className="subtitle">
             Submit a target and review scanner findings.
@@ -309,10 +341,10 @@ function App() {
             onChange={(event) => setTargetType(event.target.value)}
             aria-label="Target type"
           >
-            <option value="web">Web</option>
+            <option value="web">Web Application</option>
             <option value="api">API</option>
             <option value="network">Network</option>
-            <option value="mobile">Mobile</option>
+            <option value="mobile">Mobile Application</option>
             <option value="cloud">Cloud</option>
             <option value="wireless">Wireless</option>
           </select>
@@ -423,10 +455,33 @@ function App() {
               <strong>Status</strong>
               <span>{scan.status}</span>
             </div>
+
+            <div>
+              <strong>Target Type</strong>
+              <span>
+                {scan.target_type || targetType}
+              </span>
+            </div>
           </div>
 
           <div className="findings-header">
             <h2>Findings</h2>
+
+            <button
+              type="button"
+              className="history-refresh"
+              onClick={() => {
+                if (scan) {
+                  window.open(
+                    `${API_BASE}/scan/${scan.scan_id}/report`,
+                    '_blank',
+                  )
+                }
+              }}
+              disabled={!scan || scan.status !== 'completed'}
+            >
+              Download Report
+            </button>
 
             <select
               value={severity}

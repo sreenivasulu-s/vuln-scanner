@@ -1,15 +1,17 @@
 from uuid import uuid4
+import re
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
-from backend.scanner.lab_scanner import LabScanner
+from backend.scanner.dispatcher import TargetTypeAdapter
 from backend.db import init_db, load_scans, save_scan
 
 
 app = FastAPI(
-    title="Authorized Web Security Scanner",
+    title="Nayak The Hacker",
     version="0.7.0",
 )
 
@@ -19,6 +21,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+        "http://localhost:5175",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -55,12 +61,10 @@ class ScanRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, value: str) -> str:
-        value = value.strip()
+        value = value.strip().strip("`").strip()
 
-        if any(char in value for char in "[]()"):
-            raise ValueError(
-                "URL must be a plain URL, not a Markdown link"
-            )
+        if "](" in value and value.endswith(")"):
+            value = value.split("](", 1)[1][:-1].strip()
 
         if not (
             value.startswith("http://")
@@ -99,8 +103,11 @@ async def run_scan(scan_id: str):
     scan = scans[scan_id]
 
     try:
-        scanner = LabScanner()
-        findings = await scanner.scan(scan["target"])
+        scanner = TargetTypeAdapter()
+        findings = await scanner.scan(
+            scan["target"],
+            scan.get("target_type", "web"),
+        )
 
         for finding in findings:
             add_finding(scan_id, finding)
@@ -117,7 +124,7 @@ async def run_scan(scan_id: str):
 def home():
     return {
         "status": "ok",
-        "message": "Security Scanner API is running",
+        "message": "Nayak The Hacker Security Scanner API is running",
     }
 
 
@@ -148,6 +155,7 @@ def get_scans():
         {
             "scan_id": scan["scan_id"],
             "target": scan["target"],
+            "target_type": scan.get("target_type", "web"),
             "status": scan["status"],
             "findings_count": len(scan["findings"]),
         }
@@ -166,6 +174,58 @@ def get_scan(scan_id: str):
         )
 
     return scan
+
+
+@app.get("/scan/{scan_id}/report")
+def get_scan_report(scan_id: str):
+    scan = scans.get(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    findings = scan["findings"]
+
+    severity_counts = {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+    }
+
+    for finding in findings:
+        severity = finding.get("severity", "info")
+        if severity in severity_counts:
+            severity_counts[severity] += 1
+
+    report = {
+        "report": "Nayak The Hacker Security Assessment Report",
+        "scan_id": scan["scan_id"],
+        "target": scan["target"],
+        "target_type": scan.get("target_type", "web"),
+        "status": scan["status"],
+        "summary": {
+            "total_findings": len(findings),
+            "critical": severity_counts["critical"],
+            "high": severity_counts["high"],
+            "medium": severity_counts["medium"],
+            "low": severity_counts["low"],
+            "info": severity_counts["info"],
+        },
+        "findings": findings,
+    }
+
+    return JSONResponse(
+        content=report,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="scan-{scan_id}.json"'
+            )
+        },
+    )
 
 
 @app.get("/scan/{scan_id}/findings")

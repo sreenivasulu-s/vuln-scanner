@@ -1,3 +1,8 @@
+import datetime
+import socket
+import ssl
+from urllib.parse import urlparse
+
 import httpx
 
 from backend.scanner.base import ScannerBase
@@ -34,6 +39,7 @@ class LabScanner(ScannerBase):
             findings.extend(self._check_security_headers(response))
             findings.extend(self._check_information_disclosure(response))
             findings.extend(self._check_cookies(response))
+            findings.extend(self._check_https_tls(response.url))
 
             return findings
 
@@ -48,6 +54,107 @@ class LabScanner(ScannerBase):
                     ),
                     "evidence": str(exc),
                     "tool": "httpx",
+                }
+            ]
+
+    @staticmethod
+    def _check_https_tls(url) -> list[dict]:
+        parsed = urlparse(str(url))
+
+        if parsed.scheme.lower() != "https":
+            return []
+
+        host = parsed.hostname
+        port = parsed.port or 443
+
+        if not host:
+            return []
+
+        try:
+            context = ssl.create_default_context()
+
+            with socket.create_connection(
+                (host, port),
+                timeout=5.0,
+            ) as raw_socket:
+                with context.wrap_socket(
+                    raw_socket,
+                    server_hostname=host,
+                ) as tls_socket:
+                    certificate = tls_socket.getpeercert()
+                    tls_version = tls_socket.version()
+
+            findings = [
+                {
+                    "title": "TLS connection established",
+                    "severity": "info",
+                    "description": (
+                        "The authorized HTTPS target completed a passive "
+                        "TLS handshake."
+                    ),
+                    "evidence": (
+                        f"TLS {tls_version or 'unknown'} "
+                        f"to {host}:{port}"
+                    ),
+                    "tool": "tls-static",
+                }
+            ]
+
+            not_after = certificate.get("notAfter")
+
+            if not_after:
+                expiry = ssl.cert_time_to_seconds(not_after)
+                now = datetime.datetime.now(
+                    datetime.timezone.utc
+                ).timestamp()
+                remaining_days = int((expiry - now) / 86400)
+
+                if remaining_days < 0:
+                    findings.append(
+                        {
+                            "title": "TLS certificate expired",
+                            "severity": "high",
+                            "description": (
+                                "The HTTPS certificate is past its "
+                                "expiration date."
+                            ),
+                            "evidence": (
+                                f"notAfter={not_after}; "
+                                f"{abs(remaining_days)} day(s) expired"
+                            ),
+                            "tool": "tls-static",
+                        }
+                    )
+                elif remaining_days <= 30:
+                    findings.append(
+                        {
+                            "title": "TLS certificate expires soon",
+                            "severity": "medium",
+                            "description": (
+                                "The HTTPS certificate expires within "
+                                "30 days."
+                            ),
+                            "evidence": (
+                                f"notAfter={not_after}; "
+                                f"{remaining_days} day(s) remaining"
+                            ),
+                            "tool": "tls-static",
+                        }
+                    )
+
+            return findings
+
+        except (OSError, ssl.SSLError, ValueError) as exc:
+            return [
+                {
+                    "title": "TLS inspection failed",
+                    "severity": "low",
+                    "description": (
+                        "The HTTPS target could not be inspected with "
+                        "a passive TLS handshake."
+                    ),
+                    "evidence": str(exc),
+                    "tool": "tls-static",
                 }
             ]
 

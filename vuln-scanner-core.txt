@@ -1,0 +1,1343 @@
+===== backend/main.py =====
+from uuid import uuid4
+import re
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, field_validator
+
+from backend.scanner.dispatcher import TargetTypeAdapter
+from backend.db import init_db, load_scans, save_scan
+
+
+app = FastAPI(
+    title="Nayak The Hacker",
+    version="0.7.0",
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+        "http://localhost:5175",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class ScanRequest(BaseModel):
+    url: str
+    target_type: str = "web"
+
+    @field_validator("target_type")
+    @classmethod
+    def validate_target_type(cls, value: str) -> str:
+        value = value.strip().lower()
+
+        allowed = {
+            "web",
+            "api",
+            "network",
+            "mobile",
+            "cloud",
+            "wireless",
+        }
+
+        if value not in allowed:
+            raise ValueError(
+                "target_type must be one of: "
+                "web, api, network, mobile, cloud, wireless"
+            )
+
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        value = value.strip().strip("`").strip()
+
+        if "](" in value and value.endswith(")"):
+            value = value.split("](", 1)[1][:-1].strip()
+
+        if not (
+            value.startswith("http://")
+            or value.startswith("https://")
+        ):
+            raise ValueError(
+                "URL must start with http:// or https://"
+            )
+
+        return value
+
+
+class Finding(BaseModel):
+    title: str
+    severity: str
+    description: str
+    evidence: str
+    tool: str
+
+
+init_db()
+scans: dict[str, dict] = load_scans()
+
+
+def add_finding(
+    scan_id: str,
+    finding: dict,
+) -> None:
+    scans[scan_id]["findings"].append(
+        Finding(**finding).model_dump()
+    )
+    save_scan(scans[scan_id])
+
+
+async def run_scan(scan_id: str):
+    scan = scans[scan_id]
+
+    try:
+        scanner = TargetTypeAdapter()
+        findings = await scanner.scan(
+            scan["target"],
+            scan.get("target_type", "web"),
+        )
+
+        for finding in findings:
+            add_finding(scan_id, finding)
+
+        scan["status"] = "completed"
+
+    except Exception as exc:
+        scan["status"] = "failed"
+        scan["error"] = str(exc)
+    save_scan(scan)
+
+
+@app.get("/")
+def home():
+    return {
+        "status": "ok",
+        "message": "Nayak The Hacker Security Scanner API is running",
+    }
+
+
+@app.post("/scan")
+def start_scan(
+    request: ScanRequest,
+    background_tasks: BackgroundTasks,
+):
+    scan_id = str(uuid4())
+
+    scans[scan_id] = {
+        "scan_id": scan_id,
+        "target": request.url,
+        "target_type": request.target_type,
+        "status": "queued",
+        "findings": [],
+    }
+
+    save_scan(scans[scan_id])
+    background_tasks.add_task(run_scan, scan_id)
+
+    return scans[scan_id]
+
+
+@app.get("/scans")
+def get_scans():
+    return [
+        {
+            "scan_id": scan["scan_id"],
+            "target": scan["target"],
+            "target_type": scan.get("target_type", "web"),
+            "status": scan["status"],
+            "findings_count": len(scan["findings"]),
+        }
+        for scan in reversed(list(scans.values()))
+    ]
+
+
+@app.get("/scan/{scan_id}")
+def get_scan(scan_id: str):
+    scan = scans.get(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    return scan
+
+
+@app.get("/scan/{scan_id}/report")
+def get_scan_report(scan_id: str):
+    scan = scans.get(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    findings = scan["findings"]
+
+    severity_counts = {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+    }
+
+    for finding in findings:
+        severity = finding.get("severity", "info")
+        if severity in severity_counts:
+            severity_counts[severity] += 1
+
+    report = {
+        "report": "Nayak The Hacker Security Assessment Report",
+        "scan_id": scan["scan_id"],
+        "target": scan["target"],
+        "target_type": scan.get("target_type", "web"),
+        "status": scan["status"],
+        "summary": {
+            "total_findings": len(findings),
+            "critical": severity_counts["critical"],
+            "high": severity_counts["high"],
+            "medium": severity_counts["medium"],
+            "low": severity_counts["low"],
+            "info": severity_counts["info"],
+        },
+        "findings": findings,
+    }
+
+    return JSONResponse(
+        content=report,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="scan-{scan_id}.json"'
+            )
+        },
+    )
+
+
+@app.get("/scan/{scan_id}/findings")
+def get_findings(
+    scan_id: str,
+    severity: str | None = Query(default=None),
+):
+    scan = scans.get(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    findings = scan["findings"]
+
+    if severity:
+        findings = [
+            finding
+            for finding in findings
+            if finding["severity"] == severity
+        ]
+
+    return {
+        "scan_id": scan_id,
+        "count": len(findings),
+        "findings": findings,
+    }
+
+===== backend/db.py =====
+import json
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+DB_PATH = Path(__file__).resolve().parent.parent / "scanner.db"
+
+
+def get_connection() -> sqlite3.Connection:
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_db() -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scans (
+                scan_id TEXT PRIMARY KEY,
+                target TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                findings TEXT NOT NULL,
+                error TEXT
+            )
+            """
+        )
+        connection.commit()
+
+
+def save_scan(scan: dict[str, Any]) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO scans (
+                scan_id,
+                target,
+                target_type,
+                status,
+                findings,
+                error
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                scan["scan_id"],
+                scan["target"],
+                scan.get("target_type", "web"),
+                scan["status"],
+                json.dumps(scan.get("findings", [])),
+                scan.get("error"),
+            ),
+        )
+        connection.commit()
+
+
+def load_scans() -> dict[str, dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                scan_id,
+                target,
+                target_type,
+                status,
+                findings,
+                error
+            FROM scans
+            ORDER BY rowid ASC
+            """
+        ).fetchall()
+
+    scans: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        scans[row["scan_id"]] = {
+            "scan_id": row["scan_id"],
+            "target": row["target"],
+            "target_type": row["target_type"],
+            "status": row["status"],
+            "findings": json.loads(row["findings"] or "[]"),
+        }
+
+        if row["error"]:
+            scans[row["scan_id"]]["error"] = row["error"]
+
+    return scans
+
+
+def delete_all_scans() -> None:
+    with get_connection() as connection:
+        connection.execute("DELETE FROM scans")
+        connection.commit()
+
+===== backend/scanner/base.py =====
+from abc import ABC, abstractmethod
+
+
+class ScannerBase(ABC):
+    """
+    అన్ని scanner adapters కోసం common interface.
+    """
+
+    @abstractmethod
+    async def scan(self, target: str) -> list[dict]:
+        """
+        ఇచ్చిన targetపై scan చేసి findings list return చేయాలి.
+        """
+        raise NotImplementedError
+
+===== backend/scanner/dispatcher.py =====
+from backend.scanner.api_scanner import ApiScanner
+from backend.scanner.cloud_scanner import CloudScanner
+from backend.scanner.lab_scanner import LabScanner
+from backend.scanner.mobile_scanner import MobileScanner
+from backend.scanner.network_scanner import NetworkScanner
+from backend.scanner.wireless_scanner import WirelessScanner
+
+
+class TargetTypeAdapter:
+    async def scan(self, target: str, target_type: str) -> list[dict]:
+        scanners = {
+            "web": LabScanner(),
+            "api": ApiScanner(),
+            "network": NetworkScanner(),
+            "mobile": MobileScanner(),
+            "cloud": CloudScanner(),
+            "wireless": WirelessScanner(),
+        }
+
+        scanner = scanners.get(target_type)
+        if scanner is None:
+            return [
+                {
+                    "title": "Unsupported target type",
+                    "severity": "info",
+                    "description": "The requested target type is not supported.",
+                    "evidence": f"Target type: {target_type}",
+                    "tool": "dispatcher",
+                }
+            ]
+
+        return await scanner.scan(target)
+
+===== backend/scanner/lab_scanner.py =====
+import datetime
+import socket
+import ssl
+from urllib.parse import urlparse
+
+import httpx
+
+from backend.scanner.base import ScannerBase
+
+
+class LabScanner(ScannerBase):
+    """
+    Authorized lab scanner adapter.
+
+    Performs a non-intrusive HTTP request and reports passive
+    security observations only.
+    """
+
+    async def scan(self, target: str) -> list[dict]:
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=5.0,
+            ) as client:
+                response = await client.get(target)
+
+            findings = [
+                {
+                    "title": "HTTP service reachable",
+                    "severity": "info",
+                    "description": (
+                        "The authorized lab target responded to an HTTP GET request."
+                    ),
+                    "evidence": f"HTTP {response.status_code} from {response.url}",
+                    "tool": "httpx",
+                }
+            ]
+
+            findings.extend(self._check_security_headers(response))
+            findings.extend(self._check_information_disclosure(response))
+            findings.extend(self._check_cookies(response))
+            findings.extend(self._check_https_tls(response.url))
+
+            return findings
+
+        except httpx.HTTPError as exc:
+            return [
+                {
+                    "title": "HTTP request failed",
+                    "severity": "info",
+                    "description": (
+                        "The authorized lab target could not be reached "
+                        "with the configured HTTP client."
+                    ),
+                    "evidence": str(exc),
+                    "tool": "httpx",
+                }
+            ]
+
+    @staticmethod
+    def _check_https_tls(url) -> list[dict]:
+        parsed = urlparse(str(url))
+
+        if parsed.scheme.lower() != "https":
+            return []
+
+        host = parsed.hostname
+        port = parsed.port or 443
+
+        if not host:
+            return []
+
+        try:
+            context = ssl.create_default_context()
+
+            with socket.create_connection(
+                (host, port),
+                timeout=5.0,
+            ) as raw_socket:
+                with context.wrap_socket(
+                    raw_socket,
+                    server_hostname=host,
+                ) as tls_socket:
+                    certificate = tls_socket.getpeercert()
+                    tls_version = tls_socket.version()
+
+            findings = [
+                {
+                    "title": "TLS connection established",
+                    "severity": "info",
+                    "description": (
+                        "The authorized HTTPS target completed a passive "
+                        "TLS handshake."
+                    ),
+                    "evidence": (
+                        f"TLS {tls_version or 'unknown'} "
+                        f"to {host}:{port}"
+                    ),
+                    "tool": "tls-static",
+                }
+            ]
+
+            not_after = certificate.get("notAfter")
+
+            if not_after:
+                expiry = ssl.cert_time_to_seconds(not_after)
+                now = datetime.datetime.now(
+                    datetime.timezone.utc
+                ).timestamp()
+                remaining_days = int((expiry - now) / 86400)
+
+                if remaining_days < 0:
+                    findings.append(
+                        {
+                            "title": "TLS certificate expired",
+                            "severity": "high",
+                            "description": (
+                                "The HTTPS certificate is past its "
+                                "expiration date."
+                            ),
+                            "evidence": (
+                                f"notAfter={not_after}; "
+                                f"{abs(remaining_days)} day(s) expired"
+                            ),
+                            "tool": "tls-static",
+                        }
+                    )
+                elif remaining_days <= 30:
+                    findings.append(
+                        {
+                            "title": "TLS certificate expires soon",
+                            "severity": "medium",
+                            "description": (
+                                "The HTTPS certificate expires within "
+                                "30 days."
+                            ),
+                            "evidence": (
+                                f"notAfter={not_after}; "
+                                f"{remaining_days} day(s) remaining"
+                            ),
+                            "tool": "tls-static",
+                        }
+                    )
+
+            return findings
+
+        except (OSError, ssl.SSLError, ValueError) as exc:
+            return [
+                {
+                    "title": "TLS inspection failed",
+                    "severity": "low",
+                    "description": (
+                        "The HTTPS target could not be inspected with "
+                        "a passive TLS handshake."
+                    ),
+                    "evidence": str(exc),
+                    "tool": "tls-static",
+                }
+            ]
+
+    @staticmethod
+    def _header_get(headers, name: str, default=None):
+        """
+        Read a header from httpx.Headers, dict-like mocks, or simple
+        test doubles.
+        """
+        getter = getattr(headers, "get", None)
+
+        if callable(getter):
+            return getter(name, default)
+
+        try:
+            return headers[name]
+        except (KeyError, TypeError):
+            return default
+
+    @staticmethod
+    def _header_present(headers, name: str) -> bool:
+        """
+        Check header presence without requiring the headers object to
+        implement __contains__.
+        """
+        value = LabScanner._header_get(headers, name)
+
+        return value is not None
+
+    @staticmethod
+    def _get_set_cookie_headers(headers) -> list[str]:
+        """
+        Return all Set-Cookie header values.
+
+        httpx.Headers supports get_list(). Plain dictionaries may contain
+        a single Set-Cookie value, while test doubles may implement either
+        get_list() or get().
+        """
+        get_list = getattr(headers, "get_list", None)
+
+        if callable(get_list):
+            values = get_list("set-cookie")
+            return list(values or [])
+
+        value = LabScanner._header_get(headers, "set-cookie")
+
+        if value is None:
+            return []
+
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value]
+
+        return [str(value)]
+
+    @staticmethod
+    def _check_security_headers(response: httpx.Response) -> list[dict]:
+        checks = {
+            "x-content-type-options": (
+                "Missing X-Content-Type-Options header",
+                "The response does not include X-Content-Type-Options.",
+            ),
+            "content-security-policy": (
+                "Missing Content-Security-Policy header",
+                "The response does not include Content-Security-Policy.",
+            ),
+            "strict-transport-security": (
+                "Missing Strict-Transport-Security header",
+                "The response does not include Strict-Transport-Security.",
+            ),
+            "referrer-policy": (
+                "Missing Referrer-Policy header",
+                "The response does not include Referrer-Policy.",
+            ),
+            "permissions-policy": (
+                "Missing Permissions-Policy header",
+                "The response does not include Permissions-Policy.",
+            ),
+        }
+
+        findings = []
+
+        for header, (title, description) in checks.items():
+            if not LabScanner._header_present(response.headers, header):
+                findings.append(
+                    {
+                        "title": title,
+                        "severity": "low",
+                        "description": description,
+                        "evidence": (
+                            f"HTTP {response.status_code} from {response.url}"
+                        ),
+                        "tool": "httpx",
+                    }
+                )
+
+        return findings
+
+    @staticmethod
+    def _check_information_disclosure(response: httpx.Response) -> list[dict]:
+        findings = []
+
+        server = LabScanner._header_get(response.headers, "server")
+
+        if server:
+            findings.append(
+                {
+                    "title": "Server header disclosure",
+                    "severity": "info",
+                    "description": (
+                        "The HTTP response exposes a Server header that may "
+                        "reveal implementation details."
+                    ),
+                    "evidence": f"Server: {server}",
+                    "tool": "httpx",
+                }
+            )
+
+        powered_by = LabScanner._header_get(
+            response.headers,
+            "x-powered-by",
+        )
+
+        if powered_by:
+            findings.append(
+                {
+                    "title": "X-Powered-By header disclosure",
+                    "severity": "low",
+                    "description": (
+                        "The HTTP response exposes an X-Powered-By header "
+                        "that may reveal application technology."
+                    ),
+                    "evidence": f"X-Powered-By: {powered_by}",
+                    "tool": "httpx",
+                }
+            )
+
+        return findings
+
+    @staticmethod
+    def _check_cookies(response: httpx.Response) -> list[dict]:
+        findings = []
+
+        for cookie in LabScanner._get_set_cookie_headers(response.headers):
+            cookie_lower = cookie.lower()
+            cookie_name = cookie.split("=", 1)[0].strip()
+
+            if "secure" not in cookie_lower:
+                findings.append(
+                    {
+                        "title": "Cookie missing Secure attribute",
+                        "severity": "low",
+                        "description": (
+                            f"Cookie '{cookie_name}' is set without "
+                            "the Secure attribute."
+                        ),
+                        "evidence": cookie,
+                        "tool": "httpx",
+                    }
+                )
+
+            if "httponly" not in cookie_lower:
+                findings.append(
+                    {
+
+===== backend/scanner/api_scanner.py =====
+import httpx
+
+from backend.scanner.base import ScannerBase
+
+
+class ApiScanner(ScannerBase):
+    """
+    Passive API assessment for authorized targets.
+
+    Checks for common OpenAPI/Swagger documentation endpoints,
+    parses reachable OpenAPI JSON, checks JSON content type,
+    CORS exposure, and standard security headers.
+    """
+
+    async def scan(self, target: str) -> list[dict]:
+        target = self._normalize_target(target)
+        findings: list[dict] = []
+
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=5.0,
+            ) as client:
+                response = await client.get(target)
+
+                findings.append(
+                    {
+                        "title": "API endpoint reachable",
+                        "severity": "info",
+                        "description": (
+                            "The authorized API target responded to an HTTP GET request."
+                        ),
+                        "evidence": (
+                            f"HTTP {response.status_code} from {response.url}"
+                        ),
+                        "tool": "httpx",
+                    }
+                )
+
+                content_type = response.headers.get("content-type", "").lower()
+
+                if "application/json" not in content_type:
+                    findings.append(
+                        {
+                            "title": "API response is not JSON",
+                            "severity": "low",
+                            "description": (
+                                "The target response does not advertise a JSON content type."
+                            ),
+                            "evidence": f"Content-Type: {content_type or 'missing'}",
+                            "tool": "httpx",
+                        }
+                    )
+
+                allow_origin = response.headers.get("access-control-allow-origin")
+
+                if allow_origin == "*":
+                    findings.append(
+                        {
+                            "title": "Wildcard CORS policy",
+                            "severity": "low",
+                            "description": (
+                                "The API response allows requests from all origins."
+                            ),
+                            "evidence": "Access-Control-Allow-Origin: *",
+                            "tool": "httpx",
+                        }
+                    )
+
+                for header, title in {
+                    "x-content-type-options": "Missing X-Content-Type-Options header",
+                    "content-security-policy": "Missing Content-Security-Policy header",
+                    "referrer-policy": "Missing Referrer-Policy header",
+                }.items():
+                    if header not in response.headers:
+                        findings.append(
+                            {
+                                "title": title,
+                                "severity": "low",
+                                "description": (
+                                    f"The API response does not include {header.title()}."
+                                ),
+                                "evidence": (
+                                    f"HTTP {response.status_code} from {response.url}"
+                                ),
+                                "tool": "httpx",
+                            }
+                        )
+
+                origin = f"{response.url.scheme}://{response.url.netloc}"
+
+                for path, name in [
+                    ("/openapi.json", "OpenAPI"),
+                    ("/swagger.json", "Swagger"),
+                    ("/docs", "Swagger UI"),
+                ]:
+                    try:
+                        doc_response = await client.get(f"{origin}{path}")
+
+                        if doc_response.status_code == 200:
+                            findings.append(
+                                {
+                                    "title": f"{name} documentation endpoint detected",
+                                    "severity": "info",
+                                    "description": (
+                                        f"The API exposes a reachable {name} documentation endpoint."
+                                    ),
+                                    "evidence": (
+                                        f"HTTP 200 from {origin}{path}"
+                                    ),
+                                    "tool": "httpx",
+                                }
+                            )
+
+                            if name == "OpenAPI":
+                                findings.extend(
+                                    self._inventory_openapi(doc_response)
+                                )
+
+                    except httpx.HTTPError:
+                        continue
+
+        except httpx.HTTPError as exc:
+            findings.append(
+                {
+                    "title": "API request failed",
+                    "severity": "info",
+                    "description": (
+                        "The authorized API target could not be reached."
+                    ),
+                    "evidence": str(exc),
+                    "tool": "httpx",
+                }
+            )
+
+        return findings
+
+    @staticmethod
+    def _normalize_target(target: str) -> str:
+        import re
+
+        value = target.strip().strip("`").strip()
+
+        markdown_match = re.fullmatch(r"\[([^\]]+)\]\(([^)]+)\)", value)
+        if markdown_match:
+            value = markdown_match.group(2).strip()
+
+        return value
+
+    @staticmethod
+    def _inventory_openapi(response: httpx.Response) -> list[dict]:
+        try:
+            document = response.json()
+        except ValueError:
+            return [
+                {
+                    "title": "OpenAPI document is not valid JSON",
+                    "severity": "low",
+                    "description": (
+                        "The reachable OpenAPI endpoint did not return valid JSON."
+                    ),
+                    "evidence": "JSON parsing failed",
+                    "tool": "openapi-static",
+                }
+            ]
+
+        if "paths" not in document or not isinstance(document["paths"], dict):
+            return [
+                {
+                    "title": "OpenAPI paths section missing",
+                    "severity": "low",
+                    "description": (
+                        "The OpenAPI document does not contain a valid paths object."
+                    ),
+                    "evidence": "paths missing or invalid",
+                    "tool": "openapi-static",
+                }
+            ]
+
+        paths = document["paths"]
+
+        if not isinstance(paths, dict):
+            return [
+                {
+                    "title": "OpenAPI paths section missing",
+                    "severity": "low",
+                    "description": (
+                        "The OpenAPI document does not contain a valid paths object."
+                    ),
+                    "evidence": "paths missing or invalid",
+                    "tool": "openapi-static",
+                }
+            ]
+
+        methods = {
+            method.upper()
+            for item in paths.values()
+            if isinstance(item, dict)
+            for method in item
+            if method.lower()
+            in {
+                "get",
+                "post",
+                "put",
+                "patch",
+                "delete",
+                "options",
+                "head",
+                "trace",
+            }
+        }
+
+        endpoint_count = len(paths)
+
+        return [
+            {
+                "title": "OpenAPI endpoint inventory generated",
+                "severity": "info",
+                "description": (
+                    "The reachable OpenAPI document was parsed without invoking "
+                    "individual API operations."
+                ),
+                "evidence": (
+                    f"{endpoint_count} documented path(s); "
+                    f"methods: {', '.join(sorted(methods)) or 'none'}"
+                ),
+                "tool": "openapi-static",
+            }
+        ]
+
+===== frontend/src/App.jsx =====
+import { useEffect, useState } from 'react'
+import './App.css'
+const API_BASE = 'http://127.0.0.1:8000'
+const STORAGE_KEY = 'vuln-scanner-scan-id'
+const TARGET_CONFIG = {
+  web: {
+    label: 'Web Application',
+    placeholder: 'Authorized target URL',
+    type: 'url',
+  },
+  api: {
+    label: 'API',
+    placeholder: 'Authorized API URL',
+    type: 'url',
+  },
+  network: {
+    label: 'Network',
+    placeholder: 'Authorized host or IP',
+    type: 'text',
+  },
+  mobile: {
+    label: 'Mobile Application',
+    placeholder: 'Authorized APK/IPA path or reference',
+    type: 'text',
+  },
+  cloud: {
+    label: 'Cloud',
+    placeholder: 'Authorized cloud provider/config reference',
+    type: 'text',
+  },
+  wireless: {
+    label: 'Wireless',
+    placeholder: 'Authorized wireless interface/scope',
+    type: 'text',
+  },
+}
+
+
+function App() {
+  const [url, setUrl] = useState('')
+  const [targetType, setTargetType] = useState('web')
+  const [scan, setScan] = useState(null)
+  const [findings, setFindings] = useState([])
+  const [severity, setSeverity] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [history, setHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
+  async function loadHistory() {
+    setHistoryLoading(true)
+
+    try {
+      const response = await fetch(`${API_BASE}/scans`)
+
+      if (!response.ok) {
+        throw new Error('Failed to load scan history')
+      }
+
+      const data = await response.json()
+      setHistory(data)
+    } catch (err) {
+      setError(err.message || 'Failed to load scan history')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  async function selectHistoricalScan(scanId) {
+    setError('')
+    setSeverity('')
+
+    try {
+      const data = await loadScan(scanId)
+      localStorage.setItem(STORAGE_KEY, scanId)
+
+      if (data.status === 'queued' || data.status === 'running') {
+        let currentScan = data
+
+        while (
+          currentScan.status === 'queued' ||
+          currentScan.status === 'running'
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          currentScan = await loadScan(scanId)
+        }
+      }
+
+      await loadHistory()
+    } catch (err) {
+      setError(err.message || 'Failed to load historical scan')
+    }
+  }
+
+  async function loadScan(scanId) {
+    const response = await fetch(`${API_BASE}/scan/${scanId}`)
+
+    if (!response.ok) {
+      localStorage.removeItem(STORAGE_KEY)
+      throw new Error('Failed to load saved scan')
+    }
+
+    const data = await response.json()
+
+    setScan(data)
+    setFindings(data.findings || [])
+
+    return data
+  }
+
+  useEffect(() => {
+    loadHistory()
+
+    const savedScanId = localStorage.getItem(STORAGE_KEY)
+
+    if (!savedScanId) return
+
+    let cancelled = false
+    let timerId
+
+    async function pollScan() {
+      try {
+        const response = await fetch(
+          `${API_BASE}/scan/${savedScanId}`
+        )
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            localStorage.removeItem(STORAGE_KEY)
+            await loadHistory()
+            return
+          }
+
+          throw new Error('Failed to restore scan')
+        }
+
+        const data = await response.json()
+
+        if (cancelled) return
+
+        setScan(data)
+        setFindings(data.findings || [])
+
+        if (data.status === 'queued' || data.status === 'running') {
+          timerId = setTimeout(pollScan, 1000)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Failed to restore scan')
+        }
+      }
+    }
+
+    pollScan()
+
+    return () => {
+      cancelled = true
+      clearTimeout(timerId)
+    }
+  }, [])
+
+  async function startScan(event) {
+    event.preventDefault()
+
+    setLoading(true)
+    setError('')
+    setScan(null)
+    setFindings([])
+    setSeverity('')
+
+    try {
+      const response = await fetch(`${API_BASE}/scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: url.trim(),
+          target_type: targetType,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+
+        throw new Error(
+          data.detail?.[0]?.msg || 'Scan request failed'
+        )
+      }
+
+      const data = await response.json()
+
+      localStorage.setItem(STORAGE_KEY, data.scan_id)
+
+      setScan(data)
+      setFindings(data.findings || [])
+
+      await loadHistory()
+
+      let currentScan = data
+
+      while (
+        currentScan.status === 'queued' ||
+        currentScan.status === 'running'
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+
+        currentScan = await loadScan(data.scan_id)
+      }
+    } catch (err) {
+      setError(err.message || 'Network request failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function filterFindings(value) {
+    setSeverity(value)
+
+    if (!scan) return
+
+    const endpoint = value
+      ? `${API_BASE}/scan/${scan.scan_id}/findings?severity=${encodeURIComponent(value)}`
+      : `${API_BASE}/scan/${scan.scan_id}/findings`
+
+    try {
+      const response = await fetch(endpoint)
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch findings')
+      }
+
+      const data = await response.json()
+
+      setFindings(data.findings || [])
+    } catch (err) {
+      setError(err.message || 'Failed to load findings')
+    }
+  }
+
+  const severityCounts = findings.reduce(
+    (counts, finding) => {
+      const level = finding.severity || 'info'
+      counts[level] = (counts[level] || 0) + 1
+      return counts
+    },
+    {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      info: 0,
+    }
+  )
+
+  const totalFindings = Object.values(severityCounts).reduce(
+    (total, count) => total + count,
+    0
+  )
+
+  const riskCount =
+    severityCounts.critical +
+    severityCounts.high
+
+  return (
+    <main className="app">
+      <header className="header">
+        <div>
+          <p className="eyebrow">Nayak The Hacker</p>
+
+          <h1>Nayak The Hacker</h1>
+
+          <p className="subtitle">
+            Submit a target and review scanner findings.
+          </p>
+        </div>
+
+        <span className="status-badge">
+          API Connected
+        </span>
+      </header>
+
+      <section className="dashboard-grid">
+        <article className="metric-card">
+          <span className="metric-label">Total Scans</span>
+          <strong>{history.length}</strong>
+          <small>Saved in database</small>
+        </article>
+
+        <article className="metric-card">
+          <span className="metric-label">Findings</span>
+          <strong>{totalFindings}</strong>
+          <small>Current scan</small>
+        </article>
+
+        <article className="metric-card risk">
+          <span className="metric-label">High Risk</span>
+          <strong>{riskCount}</strong>
+          <small>
+            {severityCounts.critical} critical · {severityCounts.high} high
+          </small>
+        </article>
+
+        <article className="metric-card">
+          <span className="metric-label">Scan Status</span>
+          <strong>{scan?.status || 'Ready'}</strong>
+          <small>Scanner availability</small>
+        </article>
+      </section>
+
+      <section className="severity-overview">
+        <div className="severity-overview-header">
+          <div>
+            <h2>Security Overview</h2>
+            <p>Finding distribution for the selected scan.</p>
+          </div>
+        </div>
+
+        <div className="severity-grid">
+          {['critical', 'high', 'medium', 'low', 'info'].map((level) => (
+            <button
+              type="button"
+              className={`severity-summary ${level}`}
+              key={level}
+              onClick={() => filterFindings(level)}
+              disabled={!scan}
+            >
+              <span>{level}</span>
+              <strong>{severityCounts[level]}</strong>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>Start a scan</h2>
+
+        <form onSubmit={startScan} className="scan-form">
+          <select
+            value={targetType}
+            onChange={(event) => setTargetType(event.target.value)}
+            aria-label="Target type"
+          >
+            <option value="web">Web Application</option>
+            <option value="api">API</option>
+            <option value="network">Network</option>
+            <option value="mobile">Mobile Application</option>
+            <option value="cloud">Cloud</option>
+            <option value="wireless">Wireless</option>
+          </select>
+
+          <input
+            type="url"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="http://127.0.0.1:8000"
+            required
+          />
+
+          <button type="submit" disabled={loading}>
+
+===== requirements.txt =====
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.14.2
+certifi==2026.7.22
+click==8.4.2
+fastapi==0.141.1
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.18
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+Pygments==2.20.0
+pytest==9.1.1
+python-multipart==0.0.32
+starlette==1.6.0
+typing-inspection==0.4.3
+typing_extensions==4.16.0
+uvicorn==0.52.1

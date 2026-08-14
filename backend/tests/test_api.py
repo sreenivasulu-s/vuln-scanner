@@ -79,13 +79,19 @@ def test_scan_produces_httpx_finding():
     assert finding["tool"] == "httpx"
 
 
-def test_scan_rejects_markdown_url():
+def test_scan_normalizes_markdown_url():
     response = client.post(
         "/scan",
-        json={"url": "[http://127.0.0.1:8000](http://127.0.0.1:8000)"},
+        json={
+            "url": "[http://127.0.0.1:8000](http://127.0.0.1:8000)",
+        },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["target"] == "http://127.0.0.1:8000"
 
 
 def test_scan_rejects_invalid_scheme():
@@ -165,4 +171,41 @@ def test_scan_history_is_empty_when_no_scans_exist():
 
     assert response.status_code == 200
     assert response.json() == []
+
+def test_scan_report_returns_json_download():
+    response = client.post(
+        "/scan",
+        json={"url": "http://127.0.0.1:8000"},
+    )
+
+    assert response.status_code == 200
+
+    scan_id = response.json()["scan_id"]
+
+    report_response = client.get(
+        f"/scan/{scan_id}/report"
+    )
+
+    assert report_response.status_code == 200
+    assert report_response.headers["content-type"].startswith(
+        "application/json"
+    )
+    assert "attachment" in report_response.headers["content-disposition"]
+
+    data = report_response.json()
+
+    assert data["scan_id"] == scan_id
+    assert data["target"] == "http://127.0.0.1:8000"
+    assert data["summary"]["total_findings"] == 7
+    assert data["summary"]["info"] == 2
+    assert data["summary"]["low"] == 5
+    assert len(data["findings"]) == 7
+
+
+def test_scan_report_returns_404_for_unknown_scan():
+    response = client.get(
+        "/scan/does-not-exist/report"
+    )
+
+    assert response.status_code == 404
 
