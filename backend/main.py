@@ -1,4 +1,5 @@
 from uuid import uuid4
+import asyncio
 import re
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
@@ -110,9 +111,12 @@ async def run_scan(scan_id: str):
 
     try:
         scanner = TargetTypeAdapter()
-        findings = await scanner.scan(
-            scan["target"],
-            scan.get("target_type", "web"),
+        findings = await asyncio.wait_for(
+            scanner.scan(
+                scan["target"],
+                scan.get("target_type", "web"),
+            ),
+            timeout=300,
         )
 
         # Normalize scanner findings through the bug-bounty analysis layer.
