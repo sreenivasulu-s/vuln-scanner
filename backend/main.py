@@ -9,7 +9,6 @@ from pydantic import BaseModel, field_validator
 from backend.scanner.dispatcher import TargetTypeAdapter
 from backend.bugbounty.scope import ScopeManager
 from backend.bugbounty.models import BugBountyFinding
-from backend.bugbounty.engine import analyze_and_deduplicate
 from backend.bugbounty.report import build_report, render_markdown
 from backend.db import init_db, load_scans, save_scan
 
@@ -140,8 +139,17 @@ async def run_scan(scan_id: str):
                 "tool": finding.get("tool", "scanner"),
             })
 
-        # Keep the persisted scan results normalized and deduplicated.
+        # Keep persisted scan results normalized and deduplicated.
+        seen = set()
         for finding in normalized_findings:
+            key = (
+                finding["target"],
+                finding["title"],
+                finding["evidence"],
+            )
+            if key in seen:
+                continue
+            seen.add(key)
             add_finding(scan_id, finding)
 
         scan["status"] = "completed"
