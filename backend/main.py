@@ -115,8 +115,29 @@ async def run_scan(scan_id: str):
             scan.get("target_type", "web"),
         )
 
+        # Normalize scanner findings through the bug-bounty analysis layer.
         for finding in findings:
-            add_finding(scan_id, finding)
+            normalized = {
+                "title": finding.get("title", "Scanner finding"),
+                "severity": finding.get("severity", "info"),
+                "confidence": finding.get("confidence", "medium"),
+                "target": scan["target"],
+                "description": finding.get(
+                    "description",
+                    "Finding reported by the authorized scanner.",
+                ),
+                "evidence": finding.get("evidence", ""),
+                "impact": finding.get(
+                    "impact",
+                    "Review the evidence and validate impact within the authorized program scope.",
+                ),
+                "remediation": finding.get(
+                    "remediation",
+                    "Review the finding and apply the appropriate security control.",
+                ),
+                "tool": finding.get("tool", "scanner"),
+            }
+            add_finding(scan_id, normalized)
 
         scan["status"] = "completed"
 
