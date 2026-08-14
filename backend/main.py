@@ -363,8 +363,36 @@ def get_scan_report_markdown(scan_id: str):
     )
 
 
+
+def _scan_matches_filters(scan, severity=None, status=None, target=None):
+    if status and scan.get("status") != status:
+        return False
+    if target and target.lower() not in str(scan.get("target", "")).lower():
+        return False
+    if severity:
+        findings = scan.get("findings", [])
+        if not any(str(f.get("severity", "")).lower() == severity.lower() for f in findings):
+            return False
+    return True
+
+
 @app.get("/scans")
-def get_scans():
+def get_scans(
+    severity: str | None = None,
+    status: str | None = None,
+    target: str | None = None,
+):
+    filtered = [
+        scan
+        for scan in scans.values()
+        if _scan_matches_filters(
+            scan,
+            severity=severity,
+            status=status,
+            target=target,
+        )
+    ]
+
     return [
         {
             "scan_id": scan["scan_id"],
@@ -373,7 +401,7 @@ def get_scans():
             "status": scan["status"],
             "findings_count": len(scan["findings"]),
         }
-        for scan in reversed(list(scans.values()))
+        for scan in reversed(filtered)
     ]
 
 
