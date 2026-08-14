@@ -84,9 +84,14 @@ class ScanRequest(BaseModel):
 class Finding(BaseModel):
     title: str
     severity: str
+    confidence: str = "medium"
+    target: str = ""
     description: str
     evidence: str
+    impact: str = ""
+    remediation: str = ""
     tool: str
+    references: list[str] = []
 
 
 init_db()
@@ -141,6 +146,7 @@ async def run_scan(scan_id: str):
                     "Review the finding and apply the appropriate security control.",
                 ),
                 "tool": finding.get("tool", "scanner"),
+                "references": finding.get("references", []),
             })
 
         # Keep persisted scan results normalized and deduplicated.

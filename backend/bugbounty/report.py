@@ -76,6 +76,12 @@ def render_markdown(report: dict) -> str:
                 "",
                 f"**Tool:** {finding['tool']}",
                 "",
+                "#### References",
+                *(
+                    [f"- {reference}" for reference in finding.get("references", [])]
+                    or ["No references provided."]
+                ),
+                "",
             ]
         )
 
