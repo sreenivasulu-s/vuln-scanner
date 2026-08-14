@@ -66,6 +66,9 @@ def test_api_scanner_non_json_and_headers(monkeypatch):
         text = "<html>ok</html>"
 
         def json(self):
+            return {"openapi": "3.0.0", "paths": {"/health": {}}}
+
+        def json(self):
             return {"openapi": "3.0.0", "info": {"title": "test"}, "paths": {}}
 
     class FakeClient:
@@ -140,4 +143,4 @@ def test_scanner_base_contract():
             return await super().scan(target)
 
     with pytest.raises(NotImplementedError):
-        asyncio.run(Dummy().scan("example.test"))
+        asyncio.run(Dummy().scan("example.test"))\n
