@@ -2,11 +2,14 @@ from uuid import uuid4
 import re
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
 from backend.scanner.dispatcher import TargetTypeAdapter
+from backend.bugbounty.scope import ScopeManager
+from backend.bugbounty.models import BugBountyFinding
+from backend.bugbounty.report import build_report, render_markdown
 from backend.db import init_db, load_scans, save_scan
 
 
@@ -88,6 +91,9 @@ class Finding(BaseModel):
 init_db()
 scans: dict[str, dict] = load_scans()
 
+# Default-deny scope manager. Targets must be explicitly authorized.
+scope_manager = ScopeManager()
+
 
 def add_finding(
     scan_id: str,
@@ -133,6 +139,21 @@ def start_scan(
     request: ScanRequest,
     background_tasks: BackgroundTasks,
 ):
+    # Built-in local lab targets are always allowed.
+    # External targets must pass the configured authorization scope.
+    from urllib.parse import urlparse
+
+    hostname = urlparse(request.url).hostname
+
+    if (
+        hostname not in {"127.0.0.1", "localhost"}
+        and not scope_manager.is_in_scope(request.url)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Target is not in the configured authorized scope.",
+        )
+
     scan_id = str(uuid4())
 
     scans[scan_id] = {
@@ -147,6 +168,78 @@ def start_scan(
     background_tasks.add_task(run_scan, scan_id)
 
     return scans[scan_id]
+
+
+@app.post("/scope")
+def add_scope(
+    target: str,
+    in_scope: bool = True,
+    notes: str = "",
+):
+    scope_manager.add_rule(
+        target=target,
+        in_scope=in_scope,
+        notes=notes,
+    )
+
+    return {
+        "target": target,
+        "in_scope": in_scope,
+        "notes": notes,
+    }
+
+
+@app.get("/scope")
+def get_scope():
+    return [
+        {
+            "target": rule.target,
+            "in_scope": rule.in_scope,
+            "notes": rule.notes,
+        }
+        for rule in scope_manager.rules
+    ]
+
+
+@app.get("/scan/{scan_id}/report/markdown")
+def get_scan_report_markdown(scan_id: str):
+    scan = scans.get(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    findings = [
+        BugBountyFinding(
+            title=finding["title"],
+            severity=finding["severity"],
+            confidence="high",
+            target=scan["target"],
+            description=finding["description"],
+            evidence=finding["evidence"],
+            impact="See finding description and evidence for the observed security impact.",
+            remediation="Review the affected configuration or application behavior and apply the appropriate security control.",
+            tool=finding["tool"],
+        )
+        for finding in scan["findings"]
+    ]
+
+    report = build_report(
+        target=scan["target"],
+        findings=findings,
+    )
+
+    return Response(
+        content=render_markdown(report),
+        media_type="text/markdown",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="scan-{scan_id}.md"'
+            )
+        },
+    )
 
 
 @app.get("/scans")
