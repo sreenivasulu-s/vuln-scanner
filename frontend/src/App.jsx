@@ -512,13 +512,13 @@ function App() {
             </select>
           </div>
 
-          {findings.length === 0 ? (
+          {vulnerabilityFindings.length === 0 ? (
             <p className="empty">
-              No findings returned yet.
+              No vulnerability findings returned.
             </p>
           ) : (
             <div className="findings">
-              {findings.map((finding, index) => (
+              {vulnerabilityFindings.map((finding, index) => (
                 <article
                   className="finding"
                   key={`${finding.title}-${index}`}
