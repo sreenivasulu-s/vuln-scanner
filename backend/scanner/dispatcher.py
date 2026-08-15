@@ -4,11 +4,45 @@ from backend.scanner.lab_scanner import LabScanner
 from backend.scanner.mobile_scanner import MobileScanner
 from backend.scanner.network_scanner import NetworkScanner
 from backend.scanner.wireless_scanner import WirelessScanner
+from urllib.parse import urlparse
 from backend.scanner.recon_manager import ReconManager
 from backend.scanner.vapt_manager import VaptManager
 
 
 class TargetTypeAdapter:
+    @staticmethod
+    def _is_academy_root(target: str) -> bool:
+        hostname = (
+            urlparse(str(target).strip()).hostname
+            or ""
+        ).lower().rstrip(".")
+        return hostname == "web-security-academy.net"
+
+    @staticmethod
+    def _academy_root_finding(target: str) -> dict:
+        return {
+            "title": "PortSwigger Academy root detected",
+            "severity": "info",
+            "confidence": "high",
+            "finding_type": "tool_status",
+            "automation_status": "complete",
+            "description": (
+                "The supplied URL is the Web Security Academy portal root, "
+                "not an individual interactive lab instance."
+            ),
+            "evidence": str(target),
+            "impact": (
+                "No vulnerability assessment was run because the portal root "
+                "is not a specific lab application target."
+            ),
+            "remediation": (
+                "Start a Web Security Academy lab and scan its unique "
+                "<lab-id>.web-security-academy.net URL."
+            ),
+            "tool": "scope-preflight",
+            "category_key": None,
+        }
+
     async def scan(self, target: str, target_type: str) -> list[dict]:
         scanners = {
             "web": self._scan_web,
@@ -35,6 +69,11 @@ class TargetTypeAdapter:
         return await scanner(target)
 
     async def _scan_web(self, target: str) -> list[dict]:
+        # Academy root is a portal, not an individual lab target.
+        # Do not run heavy scanners against it.
+        if self._is_academy_root(target):
+            return [self._academy_root_finding(target)]
+
         findings = []
 
         # Existing passive web checks remain part of the pipeline.

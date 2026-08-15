@@ -57,11 +57,37 @@ class ToolRunner:
         try:
             print(f"[ToolRunner] START {tool}", flush=True)
 
+            tool_env = os.environ.copy()
+
+            # Prefer libc DNS for Go networking tools. This behaves better
+            # on Kali setups where the pure-Go resolver intermittently
+            # reports temporary DNS failures.
+            if tool in {
+                "subfinder",
+                "dnsx",
+                "httpx-toolkit",
+                "naabu",
+                "nuclei",
+            }:
+                existing_godebug = tool_env.get("GODEBUG", "")
+                if "netdns=" not in existing_godebug:
+                    tool_env["GODEBUG"] = (
+                        f"{existing_godebug},netdns=cgo"
+                        if existing_godebug
+                        else "netdns=cgo"
+                    )
+
+            tool_env.setdefault(
+                "RES_OPTIONS",
+                "attempts:3 timeout:2",
+            )
+
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
+                env=tool_env,
             )
 
             print(

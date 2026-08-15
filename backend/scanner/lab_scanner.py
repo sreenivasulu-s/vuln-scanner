@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import socket
 import ssl
@@ -18,11 +19,28 @@ class LabScanner(ScannerBase):
 
     async def scan(self, target: str) -> list[dict]:
         try:
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                timeout=5.0,
-            ) as client:
-                response = await client.get(target)
+            last_exc = None
+
+            for attempt in range(3):
+                try:
+                    async with httpx.AsyncClient(
+                        follow_redirects=True,
+                        timeout=httpx.Timeout(
+                            connect=8.0,
+                            read=8.0,
+                            write=8.0,
+                            pool=8.0,
+                        ),
+                        trust_env=True,
+                    ) as client:
+                        response = await client.get(target)
+                    break
+                except httpx.HTTPError as exc:
+                    last_exc = exc
+                    if attempt < 2:
+                        await asyncio.sleep(0.75)
+                    else:
+                        raise last_exc
 
             findings = [
                 {
@@ -56,7 +74,10 @@ class LabScanner(ScannerBase):
                         "The authorized lab target could not be reached "
                         "with the configured HTTP client."
                     ),
-                    "evidence": str(exc),
+                    "evidence": (
+                        f"{type(exc).__name__}: "
+                        f"{str(exc) or 'no additional error details'}"
+                    ),
                     "impact": (
                         "Assessment coverage is incomplete. "
                         "This is not itself a vulnerability."
