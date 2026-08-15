@@ -58,6 +58,8 @@ app.add_middleware(
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
         "http://localhost:5175",
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -116,6 +118,7 @@ class Finding(BaseModel):
     title: str
     severity: str
     confidence: str = "medium"
+    finding_type: str = "vulnerability"
     target: str = ""
     description: str
     evidence: str
@@ -160,6 +163,30 @@ async def run_scan(scan_id: str):
         # Normalize scanner findings through the bug-bounty analysis layer.
         normalized_findings = []
         for finding in findings:
+            tool = str(finding.get("tool", "")).lower()
+            title = str(finding.get("title", "")).lower()
+
+            if "timed out" in title:
+                finding_type = "tool_status"
+            elif tool in {
+                "ffuf",
+                "feroxbuster",
+                "naabu",
+                "nmap",
+                "whatweb",
+                "httpx-toolkit",
+            }:
+                finding_type = "informational"
+            elif tool == "httpx" and (
+                title.startswith("http service reachable")
+                or "fingerprinting completed" in title
+            ):
+                finding_type = "informational"
+            elif title.endswith("assessment completed"):
+                finding_type = "informational"
+            else:
+                finding_type = "vulnerability"
+
             category = classify_category(
                 finding.get("title", ""),
                 finding.get("description", ""),
@@ -171,6 +198,7 @@ async def run_scan(scan_id: str):
                 "title": finding.get("title", "Scanner finding"),
                 "severity": finding.get("severity", "info"),
                 "confidence": finding.get("confidence", "medium"),
+                "finding_type": finding_type,
                 "target": scan["target"],
                 "description": finding.get(
                     "description",
@@ -491,7 +519,25 @@ def get_scan_report(scan_id: str):
         "info": 0,
     }
 
-    for finding in findings:
+    vulnerability_findings = [
+        finding
+        for finding in findings
+        if finding.get("finding_type", "vulnerability") == "vulnerability"
+    ]
+
+    informational_count = sum(
+        1
+        for finding in findings
+        if finding.get("finding_type") == "informational"
+    )
+
+    tool_status_count = sum(
+        1
+        for finding in findings
+        if finding.get("finding_type") == "tool_status"
+    )
+
+    for finding in vulnerability_findings:
         severity = finding.get("severity", "info")
         if severity in severity_counts:
             severity_counts[severity] += 1
@@ -503,12 +549,15 @@ def get_scan_report(scan_id: str):
         "target_type": scan.get("target_type", "web"),
         "status": scan["status"],
         "summary": {
-            "total_findings": len(findings),
+            "total_findings": len(vulnerability_findings),
             "critical": severity_counts["critical"],
             "high": severity_counts["high"],
             "medium": severity_counts["medium"],
             "low": severity_counts["low"],
             "info": severity_counts["info"],
+            "informational": informational_count,
+            "tool_status": tool_status_count,
+            "total_entries": len(findings),
         },
         "findings": findings,
     }

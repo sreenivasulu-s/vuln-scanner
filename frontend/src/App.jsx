@@ -238,7 +238,19 @@ function App() {
     }
   }
 
-  const severityCounts = findings.reduce(
+  const vulnerabilityFindings = findings.filter(
+    (finding) => (finding.finding_type || 'vulnerability') === 'vulnerability'
+  )
+
+  const informationalFindings = findings.filter(
+    (finding) => finding.finding_type === 'informational'
+  )
+
+  const toolStatusFindings = findings.filter(
+    (finding) => finding.finding_type === 'tool_status'
+  )
+
+  const severityCounts = vulnerabilityFindings.reduce(
     (counts, finding) => {
       const level = finding.severity || 'info'
       counts[level] = (counts[level] || 0) + 1
@@ -253,10 +265,7 @@ function App() {
     }
   )
 
-  const totalFindings = Object.values(severityCounts).reduce(
-    (total, count) => total + count,
-    0
-  )
+  const totalFindings = vulnerabilityFindings.length
 
   const riskCount =
     severityCounts.critical +
@@ -465,7 +474,12 @@ function App() {
           </div>
 
           <div className="findings-header">
-            <h2>Findings</h2>
+            <div>
+              <h2>Findings</h2>
+              <p className="findings-summary">
+                {totalFindings} vulnerabilities · {informationalFindings.length} informational · {toolStatusFindings.length} tool status
+              </p>
+            </div>
 
             <button
               type="button"

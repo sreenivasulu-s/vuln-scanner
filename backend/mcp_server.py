@@ -222,21 +222,25 @@ async def get_vulnerability_coverage(scan_id: str) -> dict:
 
 @mcp.tool()
 async def get_burp_integration_status() -> dict:
-    """Return Burp/MCP bridge configuration status without executing requests."""
-    import os
+    """Initialize Burp MCP over SSE and discover its available tools."""
+    from backend.burp_mcp_client import BurpMCPClient
 
-    endpoint = os.getenv("BURP_MCP_URL", "").strip()
+    return await BurpMCPClient().status()
+
+
+@mcp.tool()
+async def get_burp_tools() -> dict:
+    """Return the currently advertised Burp MCP tools without executing them."""
+    from backend.burp_mcp_client import BurpMCPClient
+
+    client = BurpMCPClient()
+    tools = await client.list_tools()
 
     return {
-        "configured": bool(endpoint),
-        "endpoint": endpoint if endpoint else None,
-        "mode": "external_mcp_bridge",
-        "manual_setup_required": not bool(endpoint),
-        "message": (
-            "Set BURP_MCP_URL to the authorized Burp MCP endpoint."
-            if not endpoint
-            else "Burp MCP endpoint configured."
-        ),
+        "endpoint": client.url,
+        "transport": "sse",
+        "tool_count": len(tools),
+        "tools": tools,
     }
 
 

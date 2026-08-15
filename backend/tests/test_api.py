@@ -214,10 +214,18 @@ def test_scan_report_returns_json_download():
 
     assert data["scan_id"] == scan_id
     assert data["target"] == "http://127.0.0.1:8000"
-    assert data["summary"]["total_findings"] == len(data["findings"])
-    assert data["summary"]["info"] >= 1
+
+    vulnerability_count = sum(
+        1
+        for finding in data["findings"]
+        if (finding.get("finding_type") or "vulnerability") == "vulnerability"
+    )
+
+    assert data["summary"]["total_findings"] == vulnerability_count
+    assert data["summary"]["total_entries"] == len(data["findings"])
+    assert data["summary"]["informational"] >= 1
     assert data["summary"]["low"] >= 0
-    assert len(data["findings"]) == data["summary"]["total_findings"]
+    assert data["summary"]["total_entries"] == len(data["findings"])
 
 
 def test_scan_report_returns_404_for_unknown_scan():

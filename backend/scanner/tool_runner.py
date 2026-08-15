@@ -54,11 +54,18 @@ class ToolRunner:
         command = [executable, *args]
 
         try:
+            print(f"[ToolRunner] START {tool}", flush=True)
+
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
+            )
+
+            print(
+                f"[ToolRunner] PID {process.pid} STARTED {tool}",
+                flush=True,
             )
 
             try:
@@ -67,20 +74,46 @@ class ToolRunner:
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
+                print(
+                    f"[ToolRunner] TIMEOUT {tool} after {timeout}s",
+                    flush=True,
+                )
+
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                await process.communicate()
+
+                # Never allow timeout cleanup itself to hang the scan.
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=2.0,
+                    )
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    stdout, stderr = b"", b""
+
+                print(
+                    f"[ToolRunner] TIMEOUT CLEANUP COMPLETE {tool}",
+                    flush=True,
+                )
 
                 return ToolResult(
                     tool=tool,
                     command=command,
                     returncode=124,
-                    stdout="",
-                    stderr=f"timeout after {timeout}s",
+                    stdout=stdout.decode(errors="replace"),
+                    stderr=(
+                        stderr.decode(errors="replace")
+                        or f"timeout after {timeout}s"
+                    ),
                     timed_out=True,
                 )
+
+            print(
+                f"[ToolRunner] DONE {tool} rc={process.returncode}",
+                flush=True,
+            )
 
             return ToolResult(
                 tool=tool,
