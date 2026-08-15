@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
+import ManualAssessment from './ManualAssessment'
 const API_BASE = 'http://127.0.0.1:8000'
 const STORAGE_KEY = 'vuln-scanner-scan-id'
 const TARGET_CONFIG = {
@@ -437,6 +438,8 @@ function App() {
           </div>
         )}
       </section>
+      <ManualAssessment scan={scan} />
+
 
       {scan && (
         <section className="card">

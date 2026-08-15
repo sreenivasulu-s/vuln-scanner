@@ -518,3 +518,131 @@
     flex-direction: column;
   }
 }
+
+
+.manual-assessment {
+  border: 1px solid rgba(255, 170, 70, 0.35);
+}
+
+.manual-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.manual-badge.action {
+  border: 1px solid rgba(255, 170, 70, 0.55);
+}
+
+.manual-badge.pending {
+  border: 1px solid rgba(150, 150, 150, 0.35);
+}
+
+.manual-alert {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid rgba(255, 170, 70, 0.5);
+  border-radius: 12px;
+}
+
+.manual-alert strong {
+  display: block;
+  margin-bottom: 0.45rem;
+}
+
+.manual-alert p {
+  margin: 0.25rem 0;
+}
+
+.manual-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 1rem 0;
+}
+
+.manual-stat {
+  padding: 0.9rem;
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  border-radius: 10px;
+}
+
+.manual-stat span {
+  display: block;
+  font-size: 0.78rem;
+  opacity: 0.75;
+}
+
+.manual-stat strong {
+  display: block;
+  margin-top: 0.3rem;
+}
+
+.manual-actions {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+
+.manual-handoff {
+  padding: 1rem;
+  border: 1px dashed rgba(127, 127, 127, 0.35);
+  border-radius: 10px;
+  margin: 1rem 0;
+}
+
+.manual-handoff p {
+  margin: 0.5rem 0;
+}
+
+.manual-handoff code {
+  display: inline-block;
+  word-break: break-all;
+}
+
+.manual-catalog {
+  margin-top: 1.2rem;
+}
+
+.manual-category-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.manual-category {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(127, 127, 127, 0.2);
+  border-radius: 8px;
+}
+
+.manual-category span:first-child {
+  min-width: 0;
+}
+
+.category-observed,
+.category-unchecked,
+.category-automated {
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.category-observed {
+  font-weight: 800;
+}
+
+@media (max-width: 800px) {
+  .manual-grid,
+  .manual-category-list {
+    grid-template-columns: 1fr;
+  }
+}
