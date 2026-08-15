@@ -205,5 +205,40 @@ async def get_manual_alerts(scan_id: str) -> dict:
         "alerts": alerts,
     }
 
+@mcp.tool()
+async def get_vulnerability_catalog() -> dict:
+    """Return the 30-category assessment catalog."""
+    return await backend_request("GET", "/vulnerabilities/catalog")
+
+
+@mcp.tool()
+async def get_vulnerability_coverage(scan_id: str) -> dict:
+    """Return 30-category coverage and manual-validation status."""
+    return await backend_request(
+        "GET",
+        f"/scan/{scan_id}/coverage",
+    )
+
+
+@mcp.tool()
+async def get_burp_integration_status() -> dict:
+    """Return Burp/MCP bridge configuration status without executing requests."""
+    import os
+
+    endpoint = os.getenv("BURP_MCP_URL", "").strip()
+
+    return {
+        "configured": bool(endpoint),
+        "endpoint": endpoint if endpoint else None,
+        "mode": "external_mcp_bridge",
+        "manual_setup_required": not bool(endpoint),
+        "message": (
+            "Set BURP_MCP_URL to the authorized Burp MCP endpoint."
+            if not endpoint
+            else "Burp MCP endpoint configured."
+        ),
+    }
+
+
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", host=MCP_HOST, port=MCP_PORT)

@@ -16,6 +16,7 @@ from backend.bugbounty.classifier import classify_finding
 from backend.bugbounty.evidence import clean_evidence, evidence_fingerprint
 from backend.bugbounty.report import build_report, render_markdown
 from backend.bugbounty.knowledge import enrich_finding
+from backend.bugbounty.registry import classify as classify_category, catalog as vulnerability_catalog, coverage as vulnerability_coverage
 from backend.db import init_db, load_scans, save_scan
 
 
@@ -159,6 +160,13 @@ async def run_scan(scan_id: str):
         # Normalize scanner findings through the bug-bounty analysis layer.
         normalized_findings = []
         for finding in findings:
+            category = classify_category(
+                finding.get("title", ""),
+                finding.get("description", ""),
+                finding.get("evidence", ""),
+                finding.get("tool", ""),
+            )
+
             normalized_findings.append({
                 "title": finding.get("title", "Scanner finding"),
                 "severity": finding.get("severity", "info"),
@@ -181,6 +189,18 @@ async def run_scan(scan_id: str):
                 ),
                 "tool": finding.get("tool", "scanner"),
                 "references": finding.get("references", []),
+                "category_key": category.key if category else None,
+                "category": category.name if category else "Unclassified",
+                "validation_status": (
+                    "needs_manual_validation"
+                    if category and category.manual
+                    else "automated_evidence"
+                ),
+                "automation_status": (
+                    "potential"
+                    if category
+                    else "unclassified"
+                ),
             })
 
         # Classify normalized findings before enrichment so severity/confidence
@@ -303,6 +323,39 @@ def get_scope():
         }
         for rule in scope_manager.rules
     ]
+
+
+
+@app.get("/vulnerabilities/catalog")
+def get_vulnerability_catalog():
+    return {
+        "count": len(vulnerability_catalog()),
+        "categories": vulnerability_catalog(),
+    }
+
+
+@app.get("/scan/{scan_id}/coverage")
+def get_scan_coverage(scan_id: str):
+    scan = scans.get(scan_id)
+
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    items = vulnerability_coverage(scan.get("findings", []))
+
+    observed = sum(item["state"] == "potential" for item in items)
+    manual = sum(
+        item["state"] == "potential" and item["manual_validation"]
+        for item in items
+    )
+
+    return {
+        "scan_id": scan_id,
+        "total_categories": len(items),
+        "observed_categories": observed,
+        "manual_validation_required": manual,
+        "categories": items,
+    }
 
 
 @app.get("/health")
