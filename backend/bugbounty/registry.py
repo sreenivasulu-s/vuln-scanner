@@ -116,15 +116,35 @@ def catalog():
     ]
 
 def coverage(findings):
-    result=[]
+    """Build coverage even when persisted findings lack category_key."""
+    result = []
+
     for c in CATEGORIES:
-        hits=[f for f in findings if f.get("category_key")==c.key]
+        hits = []
+
+        for finding in findings:
+            if finding.get("category_key") == c.key:
+                hits.append(finding)
+                continue
+
+            if finding.get("category_key") is None:
+                detected = classify(
+                    finding.get("title", ""),
+                    finding.get("description", ""),
+                    finding.get("evidence", ""),
+                    finding.get("tool", ""),
+                )
+
+                if detected and detected.key == c.key:
+                    hits.append(finding)
+
         result.append({
-            "key":c.key,
-            "name":c.name,
-            "state":"potential" if hits else "not_observed",
-            "severity":c.severity,
-            "manual_validation":c.manual,
-            "finding_count":len(hits),
+            "key": c.key,
+            "name": c.name,
+            "state": "potential" if hits else "not_observed",
+            "severity": c.severity,
+            "manual_validation": c.manual,
+            "finding_count": len(hits),
         })
+
     return result
