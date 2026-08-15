@@ -28,6 +28,7 @@ class ToolRunner:
         args: list[str],
         *,
         timeout: float = 60.0,
+        stdin_data: str | None = None,
     ) -> ToolResult:
         command = [tool, *args]
 
@@ -70,7 +71,13 @@ class ToolRunner:
 
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
+                    process.communicate(
+                        input=(
+                            stdin_data.encode()
+                            if stdin_data is not None
+                            else None
+                        )
+                    ),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:

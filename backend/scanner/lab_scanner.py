@@ -48,11 +48,23 @@ class LabScanner(ScannerBase):
                 {
                     "title": "HTTP request failed",
                     "severity": "info",
+                    "confidence": "high",
+                    "finding_type": "tool_status",
+                    "automation_status": "incomplete",
+                    "category_key": None,
                     "description": (
                         "The authorized lab target could not be reached "
                         "with the configured HTTP client."
                     ),
                     "evidence": str(exc),
+                    "impact": (
+                        "Assessment coverage is incomplete. "
+                        "This is not itself a vulnerability."
+                    ),
+                    "remediation": (
+                        "Review target connectivity, proxy configuration, "
+                        "and HTTP client settings."
+                    ),
                     "tool": "httpx",
                 }
             ]

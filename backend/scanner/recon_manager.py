@@ -56,64 +56,125 @@ class ReconManager:
         args: list[str],
         title: str,
         timeout: float,
+        stdin_data: str | None = None,
     ):
         result = await self.runner.run(
             tool,
             args,
             timeout=timeout,
+            stdin_data=stdin_data,
         )
 
         output = (result.stdout or result.stderr).strip()
 
-        if not output:
+        if not output and result.returncode == 0:
             return None
 
-        return self._finding(
-            tool,
-            title,
-            output,
-        )
+        # Tool failures/timeouts are assessment status, never vulnerabilities.
+        if result.timed_out or result.returncode != 0:
+            return {
+                "title": f"{tool} timed out" if result.timed_out
+                         else f"{tool} execution failed",
+                "severity": "info",
+                "confidence": "high",
+                "finding_type": "tool_status",
+                "automation_status": "incomplete",
+                "description": (
+                    f"{tool} did not complete successfully during "
+                    "authorized reconnaissance."
+                ),
+                "evidence": (
+                    output[:12000]
+                    or (
+                        f"timeout after {timeout}s"
+                        if result.timed_out
+                        else f"exit code {result.returncode}"
+                    )
+                ),
+                "impact": (
+                    "Reconnaissance coverage is incomplete. "
+                    "This is not itself a vulnerability."
+                ),
+                "remediation": (
+                    "Review the tool configuration, target responsiveness, "
+                    "and execution timeout."
+                ),
+                "tool": tool,
+                "category_key": None,
+            }
+
+        return self._finding(tool, title, output)
 
     async def run(self, target: str) -> list[dict]:
         host = self.hostname(target)
         findings: list[dict] = []
 
-        tasks = []
+        async def run_one(task):
+            try:
+                result = await task
+            except Exception as exc:
+                print(f"[ReconManager] tool exception: {exc}", flush=True)
+                return None
+            return result
 
-        # Subfinder/DNSX are domain-oriented. Do not waste time on IP targets.
+        # Do not launch all network-heavy reconnaissance tools together.
+        # Some targets/rate-limiters behave badly when subfinder/whatweb,
+        # port scanners and HTTP fingerprinting all compete simultaneously.
+        #
+        # Phase 1: domain reconnaissance, one tool at a time.
         if not self._is_ip_or_localhost(host):
-            tasks.extend(
-                [
-                    self._run_tool(
-                        "subfinder",
-                        ["-d", host, "-silent"],
-                        "Subdomain discovery completed",
-                        25,
-                    ),
-                    self._run_tool(
-                        "dnsx",
-                        ["-silent", "-resp", "-d", host],
-                        "DNS resolution results available",
-                        25,
-                    ),
-                ]
-            )
-
-        tasks.extend(
-            [
+            for task in (
                 self._run_tool(
-                    "httpx-toolkit",
-                    [
-                        "-silent",
-                        "-status-code",
-                        "-title",
-                        "-tech-detect",
-                        "-u",
-                        target,
-                    ],
-                    "HTTP service fingerprinting completed",
-                    20,
+                    "subfinder",
+                    ["-d", host, "-silent"],
+                    "Subdomain discovery completed",
+                    45,
                 ),
+                self._run_tool(
+                    "dnsx",
+                    ["-silent", "-resp"],
+                    "DNS resolution results available",
+                    30,
+                    stdin_data=f"{host}\\n",
+                ),
+            ):
+                result = await run_one(task)
+                if result:
+                    findings.append(result)
+
+        # Phase 2: HTTP fingerprinting, one request-heavy tool at a time.
+        for task in (
+            self._run_tool(
+                "httpx-toolkit",
+                [
+                    "-silent",
+                    "-status-code",
+                    "-title",
+                    "-tech-detect",
+                    "-u",
+                    target,
+                ],
+                "HTTP service fingerprinting completed",
+                30,
+            ),
+            self._run_tool(
+                "whatweb",
+                [
+                    "--no-errors",
+                    target,
+                ],
+                "Technology fingerprinting completed",
+                45,
+            ),
+        ):
+            result = await run_one(task)
+            if result:
+                findings.append(result)
+
+        # Phase 3: port enumeration can safely run together because these
+        # tools do not compete for the same HTTP request path.
+        try:
+            port_results = await asyncio.gather(
                 self._run_tool(
                     "naabu",
                     [
@@ -124,7 +185,7 @@ class ReconManager:
                         "100",
                     ],
                     "Port discovery completed",
-                    30,
+                    35,
                 ),
                 self._run_tool(
                     "nmap",
@@ -136,30 +197,16 @@ class ReconManager:
                         host,
                     ],
                     "Nmap service enumeration completed",
-                    30,
+                    35,
                 ),
-                self._run_tool(
-                    "whatweb",
-                    [
-                        "--no-errors",
-                        target,
-                    ],
-                    "Technology fingerprinting completed",
-                    20,
-                ),
-            ]
-        )
+                return_exceptions=True,
+            )
+        except Exception as exc:
+            print(f"[ReconManager] port phase exception: {exc}", flush=True)
+            port_results = []
 
-        results = await asyncio.gather(
-            *tasks,
-            return_exceptions=True,
-        )
-
-        for result in results:
-            if isinstance(result, Exception):
-                continue
-
-            if result:
+        for result in port_results:
+            if not isinstance(result, Exception) and result:
                 findings.append(result)
 
         return findings

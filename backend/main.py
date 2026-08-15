@@ -18,12 +18,15 @@ from backend.bugbounty.report import build_report, render_markdown
 from backend.bugbounty.knowledge import enrich_finding
 from backend.bugbounty.registry import classify as classify_category, catalog as vulnerability_catalog, coverage as vulnerability_coverage
 from backend.db import init_db, load_scans, save_scan
+from backend.manual_assessment import router as manual_assessment_router
 
 
 app = FastAPI(
     title="Nayak The Hacker",
     version="0.7.0",
 )
+
+app.include_router(manual_assessment_router, prefix='/manual')
 
 # Serve the compiled frontend assets.
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
@@ -125,6 +128,10 @@ class Finding(BaseModel):
     impact: str = ""
     remediation: str = ""
     tool: str
+    category_key: str | None = None
+    category: str = "Unclassified"
+    validation_status: str = "automated_evidence"
+    automation_status: str = "unclassified"
     cwe: str | None = None
     owasp: str | None = None
     references: list[str] = []
@@ -166,7 +173,14 @@ async def run_scan(scan_id: str):
             tool = str(finding.get("tool", "")).lower()
             title = str(finding.get("title", "")).lower()
 
-            if "timed out" in title:
+            if finding.get("finding_type") == "tool_status":
+                finding_type = "tool_status"
+            elif "timed out" in title:
+                finding_type = "tool_status"
+            elif (
+                finding.get("automation_status") == "incomplete"
+                and finding.get("severity", "info") == "info"
+            ):
                 finding_type = "tool_status"
             elif tool in {
                 "ffuf",
@@ -179,7 +193,9 @@ async def run_scan(scan_id: str):
                 finding_type = "informational"
             elif tool == "httpx" and (
                 title.startswith("http service reachable")
+                or title.startswith("api endpoint reachable")
                 or "fingerprinting completed" in title
+                or "server header disclosure" in title
             ):
                 finding_type = "informational"
             elif title.endswith("assessment completed"):
@@ -225,9 +241,12 @@ async def run_scan(scan_id: str):
                     else "automated_evidence"
                 ),
                 "automation_status": (
-                    "potential"
-                    if category
-                    else "unclassified"
+                    finding.get("automation_status")
+                    or (
+                        "potential"
+                        if category
+                        else "unclassified"
+                    )
                 ),
             })
 
@@ -297,8 +316,18 @@ def start_scan(
 
     hostname = urlparse(request.url).hostname
 
+    is_local_target = hostname in {"127.0.0.1", "localhost", "::1"}
+    is_portswigger_lab = (
+        hostname is not None
+        and (
+            hostname == "web-security-academy.net"
+            or hostname.endswith(".web-security-academy.net")
+        )
+    )
+
     if (
-        hostname not in {"127.0.0.1", "localhost"}
+        not is_local_target
+        and not is_portswigger_lab
         and not scope_manager.is_in_scope(request.url)
     ):
         raise HTTPException(

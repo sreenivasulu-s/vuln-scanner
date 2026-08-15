@@ -2,6 +2,7 @@ import asyncio
 
 from backend.scanner.tool_runner import ToolRunner
 from backend.burp_mcp_client import BurpMCPClient
+from backend.scanner.burp_passive import analyze_history
 from backend.bugbounty.registry import classify
 
 
@@ -62,6 +63,9 @@ class VaptManager:
                 "title": f"{tool} timed out",
                 "severity": "info",
                 "confidence": "high",
+                "finding_type": "tool_status",
+                "automation_status": "incomplete",
+                "category_key": None,
                 "description": f"{tool} exceeded its authorized execution timeout.",
                 "evidence": output[:12000] or f"timeout after {timeout}s",
                 "impact": "Assessment was incomplete and requires analyst review.",
@@ -72,10 +76,33 @@ class VaptManager:
         if not output:
             return None
 
-        # Tool execution failures are status information, not
-        # vulnerability findings. Keep them out of the finding pipeline.
-        return_code = getattr(result, "returncode", None)
+        # Non-zero tool failures are status records, not vulnerabilities.
+        if getattr(result, "returncode", 0) not in (0, None):
+            return {
+                "title": f"{tool} execution failed",
+                "severity": "info",
+                "confidence": "high",
+                "finding_type": "tool_status",
+                "automation_status": "incomplete",
+                "category_key": None,
+                "description": (
+                    f"{tool} did not complete successfully during "
+                    "authorized assessment."
+                ),
+                "evidence": output[:12000],
+                "impact": (
+                    "Assessment coverage is incomplete. "
+                    "This is not itself a vulnerability."
+                ),
+                "remediation": (
+                    "Review the tool error and retry after correcting "
+                    "the tool configuration."
+                ),
+                "tool": tool,
+            }
 
+        # Connection failures are execution/coverage status, never
+        # vulnerability evidence.
         failure_markers = (
             "unable to connect",
             "could not connect",
@@ -85,18 +112,35 @@ class VaptManager:
             "no connection",
             "could not resolve",
             "host unreachable",
+            "network is unreachable",
+            "timed out",
         )
 
         lowered = output.lower()
 
-        if (
-            return_code not in (None, 0)
-            and any(marker in lowered for marker in failure_markers)
-        ):
-            return None
-
         if any(marker in lowered for marker in failure_markers):
-            return None
+            return {
+                "title": f"{tool} execution incomplete",
+                "severity": "info",
+                "confidence": "high",
+                "finding_type": "tool_status",
+                "automation_status": "incomplete",
+                "category_key": None,
+                "description": (
+                    f"{tool} could not complete its authorized assessment "
+                    "against the target."
+                ),
+                "evidence": output[:12000],
+                "impact": (
+                    "Assessment coverage is incomplete. "
+                    "This is not itself a vulnerability."
+                ),
+                "remediation": (
+                    "Review target connectivity, proxy configuration, "
+                    "and tool execution settings."
+                ),
+                "tool": tool,
+            }
 
         return self.finding(tool, title, result)
 
@@ -187,8 +231,47 @@ class VaptManager:
             # Burp is an optional integration; never break the core scanner.
             return []
 
+    async def _burp_passive_findings(
+        self,
+        target: str,
+    ) -> list[dict]:
+        """Read Burp Proxy HTTP history and extract safe passive indicators."""
+        import os
+
+        if os.getenv("BURP_MCP_ENABLED", "").strip().lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return []
+
+        try:
+            client = BurpMCPClient()
+            tools = await client.list_tools()
+            tool_names = {tool["name"] for tool in tools}
+
+            if "get_proxy_http_history" not in tool_names:
+                return []
+
+            result = await client.get_proxy_http_history(
+                count=int(os.getenv("BURP_MCP_HISTORY_LIMIT", "100")),
+                offset=0,
+            )
+
+            return analyze_history(result, target)
+
+        except Exception:
+            return []
+
     async def run(self, target: str) -> list[dict]:
-        tasks = [
+        findings: list[dict] = []
+
+        # Run the heavy HTTP assessment tools sequentially.
+        # Running nuclei + nikto + ffuf + feroxbuster concurrently against
+        # the same target was the main source of artificial execution
+        # timeouts observed in the backend.
+        tool_tasks = (
             self._run(
                 "nuclei",
                 [
@@ -207,7 +290,7 @@ class VaptManager:
                     "-rate-limit",
                     "2",
                     "-timeout",
-                    "1",
+                    "3",
                     "-retries",
                     "0",
                     "-exclude-type",
@@ -217,7 +300,7 @@ class VaptManager:
                     "-no-color",
                 ],
                 "Nuclei assessment completed",
-                10,
+                40,
             ),
             self._run(
                 "nikto",
@@ -233,7 +316,7 @@ class VaptManager:
                     "-nointeractive",
                 ],
                 "Nikto assessment completed",
-                15,
+                20,
             ),
             self._run(
                 "ffuf",
@@ -244,10 +327,18 @@ class VaptManager:
                     "/usr/share/wordlists/dirb/common.txt",
                     "-mc",
                     "200,204,301,302,307,401,403",
+                    "-t",
+                    "10",
+                    "-rate",
+                    "20",
+                    "-timeout",
+                    "3",
+                    "-maxtime",
+                    "15",
                     "-s",
                 ],
                 "Endpoint discovery completed",
-                20,
+                25,
             ),
             self._run(
                 "feroxbuster",
@@ -267,9 +358,19 @@ class VaptManager:
                     "10s",
                 ],
                 "Feroxbuster endpoint discovery completed",
-                15,
+                20,
             ),
-        ]
+        )
+
+        for task in tool_tasks:
+            try:
+                result = await task
+            except Exception as exc:
+                print(f"[VaptManager] tool exception: {exc}", flush=True)
+                continue
+
+            if isinstance(result, dict):
+                findings.append(result)
 
         import os
 
@@ -279,34 +380,22 @@ class VaptManager:
             "yes",
             "on",
         }:
-            tasks.append(self._burp_findings())
-
-        results = await asyncio.gather(
-            *tasks,
-            return_exceptions=True,
-        )
-
-        findings: list[dict] = []
-
-        for result in results:
-            if not result or isinstance(result, Exception):
-                continue
-
-            if isinstance(result, list):
+            try:
+                burp_findings = await self._burp_findings()
                 findings.extend(
-                    item for item in result
+                    item for item in burp_findings
                     if isinstance(item, dict)
                 )
-            elif isinstance(result, dict):
-                findings.append(result)
+            except Exception as exc:
+                print(f"[VaptManager] Burp scanner exception: {exc}", flush=True)
 
-        findings = findings
-        
-        # Final safety gate: discovery/enumeration output is never a vulnerability.
-        for _finding in findings:
-            if _finding.get("tool") in {"ffuf", "feroxbuster"}:
-                _finding["severity"] = "info"
-                _finding["confidence"] = "low"
-                _finding["category_key"] = None
-        
+            try:
+                passive_findings = await self._burp_passive_findings(target)
+                findings.extend(
+                    item for item in passive_findings
+                    if isinstance(item, dict)
+                )
+            except Exception as exc:
+                print(f"[VaptManager] Burp passive exception: {exc}", flush=True)
+
         return findings

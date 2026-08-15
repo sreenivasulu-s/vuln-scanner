@@ -24,6 +24,18 @@ class ScopeManager:
     def is_in_scope(self, target: str) -> bool:
         target_host = self._host(target)
 
+        # Local scanner targets are always allowed.
+        if target_host in {"127.0.0.1", "localhost", "::1"}:
+            return True
+
+        # PortSwigger Web Security Academy is an explicitly
+        # authorized training/lab target for this scanner.
+        if (
+            target_host == "web-security-academy.net"
+            or target_host.endswith(".web-security-academy.net")
+        ):
+            return True
+
         for rule in self.rules:
             rule_host = self._host(rule.target)
 

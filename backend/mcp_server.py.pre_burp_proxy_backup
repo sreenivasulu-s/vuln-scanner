@@ -55,14 +55,6 @@ async def authorized(target: str) -> bool:
     if host in {"127.0.0.1", "localhost", "::1"}:
         return True
 
-    # PortSwigger Web Security Academy is an explicitly
-    # authorized training/lab target.
-    if (
-        host == "web-security-academy.net"
-        or host.endswith(".web-security-academy.net")
-    ):
-        return True
-
     rules = await backend_request("GET", "/scope")
     manager = ScopeManager()
 
@@ -250,16 +242,6 @@ async def get_burp_tools() -> dict:
         "tool_count": len(tools),
         "tools": tools,
     }
-
-
-@mcp.tool()
-async def call_burp_tool(tool_name: str, arguments: dict) -> dict:
-    """Call an advertised Burp MCP tool through the configured Burp SSE bridge."""
-    from backend.burp_mcp_client import BurpMCPClient
-
-    client = BurpMCPClient()
-    result = await client.call_tool(tool_name, arguments)
-    return result
 
 
 if __name__ == "__main__":

@@ -69,6 +69,20 @@ class BurpMCPClient:
             },
         )
 
+    async def get_proxy_http_history(
+        self,
+        count: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """Fetch Burp Proxy HTTP history through MCP."""
+        return await self.call_tool(
+            "get_proxy_http_history",
+            {
+                "count": int(count),
+                "offset": int(offset),
+            },
+        )
+
     @staticmethod
     def _text_from_content(content: Any) -> str:
         parts: list[str] = []

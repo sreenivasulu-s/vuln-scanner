@@ -40,19 +40,6 @@ class ApiScanner(ScannerBase):
 
                 content_type = response.headers.get("content-type", "").lower()
 
-                if "application/json" not in content_type:
-                    findings.append(
-                        {
-                            "title": "API response is not JSON",
-                            "severity": "low",
-                            "description": (
-                                "The target response does not advertise a JSON content type."
-                            ),
-                            "evidence": f"Content-Type: {content_type or 'missing'}",
-                            "tool": "httpx",
-                        }
-                    )
-
                 allow_origin = response.headers.get("access-control-allow-origin")
 
                 if allow_origin == "*":
